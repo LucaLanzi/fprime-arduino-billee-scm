@@ -1,5 +1,12 @@
 # Source tag requirements:
 # -r https://raw.githubusercontent.com/nasa/fprime/refs/tags/v4.3.0/requirements.txt
 
-# Local requirements:
+# Local requirements (F´ framework):
 -r ./lib/fprime/requirements.txt
+
+# NOTE: the fprime-arduino Python deps (arduino-cli-cmake-wrapper, a newer cmake)
+# are installed as a second layer by `make setup`, NOT listed here. They cannot
+# share one `pip install -r` with the file above: lib/fprime pins cmake==3.26.0
+# while lib/fprime-arduino/requirements.txt requires cmake>=3.26.4, which the pip
+# resolver rejects in a single pass. Installed sequentially, the newer cmake wins
+# and `pip check` stays clean.
