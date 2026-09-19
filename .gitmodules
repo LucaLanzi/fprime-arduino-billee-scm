@@ -7,3 +7,6 @@
 [submodule "lib/fprime-baremetal"]
 	path = lib/fprime-baremetal
 	url = https://github.com/fprime-community/fprime-baremetal.git
+[submodule "lib/fprime-billee-scm"]
+	path = lib/fprime-billee-scm
+	url = https://github.com/LucaLanzi/fprime-billee-scm.git

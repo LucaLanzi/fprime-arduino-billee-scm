@@ -28,6 +28,11 @@ module billee_deployment {
     instance rateDriver
     instance rateGroup1
     instance rateGroupDriver
+    instance relay1Gpio
+    instance relay2Gpio
+    instance relay3Gpio
+    instance relay4Gpio
+    instance relayManager
     instance systemResources
     instance textLogger
     instance timeHandler
@@ -60,6 +65,7 @@ module billee_deployment {
       rateGroup1.RateGroupMemberOut[0] -> tlmSend.Run
       rateGroup1.RateGroupMemberOut[1] -> systemResources.run
       rateGroup1.RateGroupMemberOut[2] -> comDriver.schedIn
+      rateGroup1.RateGroupMemberOut[3] -> relayManager.run
     }
 
     connections FaultProtection {
@@ -90,7 +96,10 @@ module billee_deployment {
     }
 
     connections billee_deployment {
-      # Add here connections to user-defined components
+      relayManager.relay1Set -> relay1Gpio.gpioWrite
+      relayManager.relay2Set -> relay2Gpio.gpioWrite
+      relayManager.relay3Set -> relay3Gpio.gpioWrite
+      relayManager.relay4Set -> relay4Gpio.gpioWrite
     }
 
   }
