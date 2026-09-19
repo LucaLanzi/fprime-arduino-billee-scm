@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-UART_DEVICE="${UART_DEVICE:-/dev/ttyACM0}"
+UART_DEVICE="${UART_DEVICE:-/dev/ttyACM1}"
 DICTIONARY_PATH="${DICTIONARY_PATH:-${PROJECT_ROOT}/build-artifacts/teensy41/FprimeArduinoBilleeScm_billee_deployment/dict/billee_deploymentTopologyDictionary.json}"
 GDS_BIN="${PROJECT_ROOT}/fprime-venv/bin/fprime-gds"
 # 5001, not fprime-gds's own default of 5000 - this project runs alongside
