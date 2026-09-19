@@ -11,12 +11,19 @@ ARDUINO_CLI      := $(VENV)/bin/arduino-cli
 export FPRIME_FRAMEWORK_PATH := $(PROJECT_ROOT)/lib/fprime
 export PATH := $(VENV)/bin:$(PATH)
 
-# Board / toolchain. `atmega2560` = cmake/toolchain/atmega2560.cmake.
-TOOLCHAIN        ?= atmega2560
-MEGACORE_URL     := https://mcudude.github.io/MegaCore/package_MCUdude_MegaCore_index.json
+# Board / toolchain. `teensy41` = lib/fprime-arduino/cmake/toolchain/teensy41.cmake.
+TOOLCHAIN     ?= teensy41
+TEENSY_URL    := https://www.pjrc.com/teensy/package_teensy_index.json
+
+# GDS. MAC_UART_DEVICE is this board's path on the maintainer's Mac - it varies
+# per machine/USB port, override with `make gds mac UART_DEVICE=/dev/cu.usbmodemXXXXXXX`
+# if yours differs (see README's "Finding the device" instructions).
+MAC_UART_DEVICE ?= /dev/cu.usbmodem141478301
+GDS_SERVICE      := billee-scm-lan-gds
 
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-arduino generate build clean print-banner
+.PHONY: help setup setup-arduino generate build clean print-banner \
+        gds install-gds-service uninstall-gds-service gds-service-status gds-attach mac
 
 help: ## Show available commands
 	@$(MAKE) --no-print-directory print-banner
@@ -37,7 +44,7 @@ setup: ## Create fprime-venv, init submodules, install Python deps into the venv
 	@echo "[OK] make setup complete — next: make setup-arduino"
 	@$(MAKE) --no-print-directory print-banner
 
-setup-arduino: ## Install arduino-cli into the venv + MegaCore:avr core + Time library
+setup-arduino: ## Install arduino-cli into the venv + Teensy board package + Time library
 	@test -x "$(VENV_PYTHON)" || { echo "[ERROR] run 'make setup' first"; exit 1; }
 	@if [ ! -x "$(ARDUINO_CLI)" ]; then \
 		echo "[INFO] Installing arduino-cli into $(VENV)/bin ..."; \
@@ -47,9 +54,9 @@ setup-arduino: ## Install arduino-cli into the venv + MegaCore:avr core + Time l
 		echo "[INFO] arduino-cli already present: $$($(ARDUINO_CLI) version)"; \
 	fi
 	@$(ARDUINO_CLI) config init 2>/dev/null || echo "[INFO] arduino-cli config already initialized"
-	$(ARDUINO_CLI) config add board_manager.additional_urls $(MEGACORE_URL)
+	$(ARDUINO_CLI) config add board_manager.additional_urls $(TEENSY_URL)
 	$(ARDUINO_CLI) core update-index
-	$(ARDUINO_CLI) core install MegaCore:avr
+	$(ARDUINO_CLI) core install teensy:avr@1.59.0
 	$(ARDUINO_CLI) lib install Time
 	@echo "[OK] make setup-arduino complete"
 	@$(MAKE) --no-print-directory print-banner
@@ -65,6 +72,34 @@ clean: ## Purge F´ build caches and build artifacts
 	rm -rf build-fprime-automatic-* build-artifacts
 	@echo "[OK] make clean complete"
 
+gds: ## Start GDS against the board (make gds mac to use MAC_UART_DEVICE)
+	@if [ "$(filter mac,$(MAKECMDGOALS))" = "mac" ]; then \
+		UART_DEVICE="$(MAC_UART_DEVICE)" ./uart_gds.sh; \
+	else \
+		./uart_gds.sh; \
+	fi
+
+install-gds-service: ## Install+enable a systemd service: lan_uart_gds.sh in a detached screen, auto-retry every 10s
+	sudo ./install-lan-gds-service.sh
+
+uninstall-gds-service: ## Stop and remove the billee-scm-lan-gds systemd service
+	-sudo systemctl disable --now $(GDS_SERVICE).service
+	sudo rm -f /etc/systemd/system/$(GDS_SERVICE).service
+	sudo systemctl daemon-reload
+	@echo "[INFO] $(GDS_SERVICE) removed"
+
+gds-service-status: ## Show billee-scm-lan-gds service status and recent logs
+	@systemctl status $(GDS_SERVICE).service --no-pager || true
+	@echo
+	@journalctl -u $(GDS_SERVICE).service -n 30 --no-pager || true
+
+gds-attach: ## Attach to the running GDS screen session (Ctrl-A then D to detach)
+	screen -r $(GDS_SERVICE)
+
+# Dummy target used only as a command-line keyword (make gds mac)
+mac:
+	@:
+
 print-banner: ## Print the project splash screen
 	@echo ""
 	@echo "██████╗  ██╗██╗     ██╗     ███████╗███████╗"
@@ -75,6 +110,6 @@ print-banner: ## Print the project splash screen
 	@echo "╚═════╝  ╚═╝╚══════╝╚══════╝╚══════╝╚══════╝"
 	@echo ""
 	@echo "        Science Control Module"
-	@echo "        F´ on Arduino Mega 2560 (ATmega2560)"
+	@echo "        F´ on Teensy 4.1 (iMXRT1062)"
 	@echo "        Powered by F\` Flight Software (NASA/JPL)"
 	@echo ""

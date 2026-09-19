@@ -1,13 +1,21 @@
 # FprimeArduinoBilleeScm
 
 F´ (F Prime) firmware project for the **BILLEE Science Control Module (SCM)**,
-cross-compiled for an **Arduino Mega 2560** (Microchip **ATmega2560**, 8-bit AVR,
-256 KB flash / **8 KB SRAM**, 16 MHz) through NASA JPL's
+cross-compiled for a **Teensy 4.1** (NXP **iMXRT1062**, ARM Cortex-M7,
+600 MHz, 1024 KB RAM, 8 MB flash) through NASA JPL's
 [fprime-arduino](https://github.com/fprime-community/fprime-arduino) `ArduinoFw`
 platform.
 
-> The 8 KB SRAM ceiling forces a **baremetal (no-OS)** build and a deliberately
-> small topology. This is not a full CDH deployment target.
+> This project previously targeted an Arduino Mega 2560 (ATmega2560, AVR).
+> That path required hand-writing a full C++ standard library (no AVR
+> toolchain ships `avr-libstdc++`) and manually shrinking F´'s default
+> buffer/table sizes to fit 8 KB of SRAM — and even then, some F´ core
+> content (`Svc::FpySequencer`) turned out to assume more RAM than an 8-bit
+> AVR has at all. Teensy 4.1 is in fprime-arduino's own
+> [tested board list](https://github.com/fprime-community/fprime-arduino/blob/main/docs/board-list.md),
+> uses a real hosted-class `arm-none-eabi-gcc` toolchain with full
+> `libstdc++`, and has roughly 128,000× the RAM — none of the AVR-era
+> workarounds apply here.
 
 ---
 
@@ -17,44 +25,58 @@ platform.
 fprime-arduino-billee-scm/
 ├── CMakeLists.txt                 # project build entry — pulls in F´ core, then this project
 ├── settings.ini                  # F´ project settings (paths, libraries, default toolchain)
-├── requirements.txt              # Python deps installed INTO fprime-venv (never system-wide)
+├── requirements.txt               # Python deps installed INTO fprime-venv (never system-wide)
 ├── Makefile                      # bootstrap + build wrappers (see "Make targets")
 ├── CMakePresets.json             # IDE/CMake presets that point at ./fprime-venv
 ├── .clang-format                 # Chromium-based, 4-space, 120 col
-├── cmake/
-│   └── toolchain/
-│       └── atmega2560.cmake      # the board toolchain (this file makes "atmega2560" a target)
+├── uart_gds.sh                   # local GDS launcher, port 5001 (see "Running fprime-gds")
+├── lan_uart_gds.sh               # same, web UI bound to 0.0.0.0 for LAN access
+├── gds-run-loop.sh               # runs lan_uart_gds.sh forever, retrying on exit
+├── install-lan-gds-service.sh    # installs the billee-scm-lan-gds systemd service
 ├── FprimeArduinoBilleeScm/
-│   ├── CMakeLists.txt            # registers project-wide dirs
-│   └── Components/
-│       └── CMakeLists.txt        # list SCM components here; register the deployment here too
+│   ├── CMakeLists.txt            # registers project-wide dirs + the deployment
+│   ├── Components/               # project-wide components, shared across deployments
+│   └── billee_deployment/        # the deployment (Top/ topology, Main.cpp, config/)
 ├── lib/                          # git submodules (populated by `make setup`)
-│   ├── fprime/                   # the F´ framework            (v4.3.0)
-│   ├── fprime-arduino/           # the ArduinoFw platform + arduino-cli glue + ATmega drivers
-│   └── fprime-baremetal/         # no-OS scheduler / Os / base config to reduce RAM
+│   ├── fprime/                   # the F´ framework            (pinned to v4.1.1 — see below)
+│   ├── fprime-arduino/           # the ArduinoFw platform + arduino-cli glue + Teensy support
+│   └── fprime-baremetal/         # no-OS scheduler / Os implementations (pinned — see below)
 └── fprime-venv/                  # Python venv + arduino-cli  (GIT-IGNORED, regenerated locally)
 ```
-
-### Why `fprime-venv/` is not in git
-
-It never is, and never should be. A virtualenv bakes absolute paths into
-`bin/activate`, `pyvenv.cfg`, and every script shebang, so it cannot be moved
-between machines. It is **regenerated per machine** by `make setup`
-(`/fprime-venv/` is listed in `.gitignore`). If you cloned this repo and there is
-no `fprime-venv/`, that is expected — run `make setup`.
-
 ---
 
-## Submodules — what each one provides
+## Submodules — what each one provides, and why the versions are pinned where they are
 
-| Submodule | Role |
+| Submodule | Pinned at | Role |
+|---|---|---|
+| `lib/fprime` | **`v4.1.1`** | The framework: `Fw/`, `Svc/`, `Drv/`, `Os/`, the FPP autocoder, and the `cmake/` build system. |
+| `lib/fprime-arduino` | current HEAD | The **`ArduinoFw` platform** (`cmake/platform/ArduinoFw.cmake`), the per-board toolchains under `cmake/toolchain/` (including `teensy41.cmake`), the shared `cmake/toolchain/support/arduino-support.cmake` that runs `arduino-cli` to detect `arm-none-eabi-gcc` and build the Teensy core, plus the board-generic `Arduino/` components/drivers. |
+| `lib/fprime-baremetal` | a commit pinned just before [`Make Task compatible with 4.2.0` (#33)](https://github.com/fprime-community/fprime-baremetal) | No-OS building blocks: the baremetal scheduler, baremetal `Os` implementations, `new`/`delete` accounting, a `BASE_CONFIG` module auto-registered via `library_locations`. |
+
+**Why `lib/fprime` is pinned to v4.1.1, not the latest tag.** `lib/fprime-arduino`'s
+current submodule HEAD is a commit literally titled *"Upgrade to support
+fprime v4.1.1 (#54)"* — it was authored and tested against that exact F´
+version. This project originally pinned `lib/fprime` to a much newer tag
+(v4.3.0, ~8 months later), and every non-cookiecutter compile error hit while
+porting to AVR turned out to be pure version skew between the two, not a
+board problem:
+
+| Symptom | Root cause |
 |---|---|
-| `lib/fprime` (`v4.3.0`) | The framework: `Fw/`, `Svc/`, `Drv/`, `Os/`, the FPP autocoder, and the `cmake/` build system (`FPrime.cmake`) that `fprime-util` drives. |
-| `lib/fprime-arduino` | The **`ArduinoFw` platform** (`cmake/platform/ArduinoFw.cmake`), the per-board toolchains under `cmake/toolchain/`, the shared `cmake/toolchain/support/arduino-support.cmake` that runs `arduino-cli` to detect AVR-GCC and build the Arduino core, plus ATmega components/OS shims (`ATmegaOs`, `ATmegaTypes`, `ATmegaGpioDriver`, `ATmegaI2cDriver`, `ATmegaSerialDriver`, `ATmegaSpiDriver`, `ATmegaAdcDriver`, `ATmegaTime`, …). Its own `requirements.txt` pins `arduino-cli-cmake-wrapper`. |
-| `lib/fprime-baremetal` | No-OS building blocks to shrink RAM: the baremetal scheduler (selected by the toolchain), baremetal `Os` implementations, optional `new`/`delete` accounting, the `baremetal-size` utility, and a `BASE_CONFIG` module (`MicroFsCfg.hpp`) that is auto-registered because the folder is on `library_locations`. |
+| `Os::RawTimeInterface::getDelegate` signature mismatch (fprime-arduino provides 2 params, F´ core wants 3) | F´ core added the 3rd param in a commit that only exists in v4.3.0+, not v4.1.1 |
+| `Fw::StringScan`/`Os::CountingSemaphore` implementations never selected | Neither interface exists yet at v4.1.1 — nothing to select |
+| `Os::TaskInterface::_delay` override mismatch (value vs. const-reference) | `fprime-baremetal`'s HEAD was updated for F´ 4.2.0's interface change; pinned back one commit, it matches v4.1.1's by-value signature exactly |
 
-`git submodule update --init --recursive` (run for you by `make setup`) also pulls
-`lib/fprime`'s own nested submodules.
+Pinning both submodules to the versions they were actually built against
+eliminated all three outright — **zero patches to either submodule are
+needed**; `git -C lib/fprime-arduino status` and `git -C lib/fprime-baremetal
+status` both stay clean. If you ever bump `lib/fprime` forward, expect these
+exact classes of error to resurface and re-check both submodules' own commit
+history for a matching "upgrade to fprime vX.Y" commit before patching
+anything by hand.
+
+`git submodule update --init --recursive` (run for you by `make setup`) also
+pulls `lib/fprime`'s own nested submodules.
 
 ---
 
@@ -64,9 +86,13 @@ no `fprime-venv/`, that is expected — run `make setup`.
 [fprime]
 project_root: .
 framework_path: ./lib/fprime
+
 library_locations: ./lib/fprime-arduino:./lib/fprime-baremetal
-default_toolchain: atmega2560
-deployment_cookiecutter: https://github.com/fprime-community/fprime-arduino-deployment-cookiecutter.git
+
+default_toolchain: teensy41
+
+deployment_cookiecutter: https://github.com/LucaLanzi/fprime-arduino-deployment-cookiecutter.git
+
 default_cmake_options:  FPRIME_ENABLE_FRAMEWORK_UTS=OFF
                         FPRIME_ENABLE_AUTOCODER_UTS=OFF
 ```
@@ -76,45 +102,45 @@ default_cmake_options:  FPRIME_ENABLE_FRAMEWORK_UTS=OFF
 | `project_root` | Root all other relative paths resolve against (`.` = this dir). |
 | `framework_path` | Where the F´ framework lives — the `lib/fprime` submodule. |
 | `library_locations` | Colon-separated roots F´ scans for `library.cmake` and `cmake/toolchain/`. This is what makes fprime-arduino and fprime-baremetal visible to the build. |
-| `default_toolchain` | Toolchain used when `fprime-util generate`/`build` is run with no name — `atmega2560` → `cmake/toolchain/atmega2560.cmake`. |
-| `deployment_cookiecutter` | Template `fprime-util new --deployment` uses — the fprime-arduino deployment cookiecutter, which generates a `Top/` topology, `Main.cpp`, **and the deployment's own `config/`** (`FpConfig.h`, `AcConstants.fpp`, …). Config is per-deployment here, not set globally via `config_directory`. |
+| `default_toolchain` | Toolchain used when `fprime-util generate`/`build` is run with no name — `teensy41` → `lib/fprime-arduino/cmake/toolchain/teensy41.cmake`. There is no project-local toolchain override file; fprime-arduino's own file handles this board correctly as-is (see below). |
+| `deployment_cookiecutter` | Template `fprime-util new --deployment` uses — a fork of the upstream community template with two config-generation bugs fixed. See "Deployment config overrides" below for why. |
 | `default_cmake_options` | Disable framework + autocoder unit tests (not built for a cross target). |
-
-> This mirrors the [fprime-arduino LedBlinker tutorial](https://github.com/fprime-community/fprime-tutorial-arduino-blinker)'s `settings.ini` (which also omits `config_directory`), with `atmega2560` swapped in for its `teensy41`.
 
 ---
 
-## The toolchain — how a build reaches AVR-GCC
+## The toolchain — how a build reaches `arm-none-eabi-gcc`
 
-`cmake/toolchain/atmega2560.cmake` is the pivot. `fprime-util generate atmega2560`
-finds it (a project-local toolchain wins over the copies in the libraries),
-passes it to CMake as `CMAKE_TOOLCHAIN_FILE`, and it:
+Unlike the old AVR path, there is **no project-local `cmake/toolchain/`
+file** for this board. `lib/fprime-arduino/cmake/toolchain/teensy41.cmake`
+handles everything correctly on its own:
 
-1. sets `CMAKE_SYSTEM_NAME=Generic`, `CMAKE_SYSTEM_PROCESSOR=avr`,
+1. sets `CMAKE_SYSTEM_NAME=Generic`, `CMAKE_SYSTEM_PROCESSOR=arm`,
    `FPRIME_PLATFORM=ArduinoFw`, `FPRIME_USE_BAREMETAL_SCHEDULER=ON`;
-2. sets `ARDUINO_FQBN=MegaCore:avr:2560`,
-   `ARDUINO_BOARD_OPTIONS=clock=16MHz_external`, `-DATMEGA`,
-   and LTO build flags;
-3. `include()`s `lib/fprime-arduino/cmake/toolchain/support/arduino-support.cmake`,
-   which shells out through **`arduino-cli-cmake-wrapper` → `arduino-cli`** to
-   (a) detect the AVR toolchain binaries, flags, and include paths and give them
-   to CMake, and (b) compile the Arduino core + any requested `arduino-cli`
-   libraries and link them into the final `.elf`.
+2. sets `ARDUINO_FQBN=teensy:avr:teensy41` (no configurable board options —
+   Teensy 4.1's clock/etc. are fixed by the core, unlike AVR's
+   `clock=16MHz_external`);
+3. `include()`s the same shared `arduino-support.cmake` every board in this
+   repo uses, which shells out through `arduino-cli-cmake-wrapper` →
+   `arduino-cli` to detect the toolchain and build the Teensy core.
 
-`ArduinoFw.cmake` then adds the platform `StandardTypes`. So three things must be
-in place before `make build`:
+`ArduinoFw.cmake` then adds the platform types from
+`cmake/platform/arm/Platform/`, which — checked directly — registers **zero**
+C++ standard-library shim headers, unlike the AVR-facing
+`cmake/platform/basic/Platform/`'s twelve. `arm-none-eabi-gcc` ships real
+`libstdc++`; F´ core's `#include <cstddef>`, `<type_traits>`, `<atomic>`, etc.
+all resolve normally. There is no `avr-cxx-shim/` directory in this project
+anymore, and no compiler-routing/STDC-macro/`-mdouble=64` block in a
+project-local toolchain file, because none of it is needed.
+
+Three things must be in place before `make build`:
 
 - **`fprime-venv`** — provides `fprime-util`, `cmake`, and `arduino-cli-cmake-wrapper`
   (`make setup`);
 - **`arduino-cli` on `PATH`** — installed into `fprime-venv/bin` (`make setup-arduino`);
-- **the `MegaCore:avr` core + the `Time` library** — installed via `arduino-cli`
-  (`make setup-arduino`).
-
-> Keep the `../../lib/fprime-arduino` path inside `atmega2560.cmake` in sync with
-> the `lib/fprime-arduino` submodule path in `.gitmodules`.
->
-> Stock-core alternative to MegaCore: set `ARDUINO_FQBN "arduino:avr:mega"`, drop
-> `ARDUINO_BOARD_OPTIONS`, and `arduino-cli core install arduino:avr` instead.
+- **the `teensy:avr` board package** — installed via `arduino-cli`
+  (`make setup-arduino`), from PJRC's own board-manager index
+  (`https://www.pjrc.com/teensy/package_teensy_index.json` — Teensy isn't in
+  arduino-cli's default index).
 
 ---
 
@@ -129,36 +155,162 @@ CMakeLists.txt
   add_fprime_subdirectory(FprimeArduinoBilleeScm)
       └── FprimeArduinoBilleeScm/CMakeLists.txt
             add_fprime_subdirectory(Components)
-                └── Components/CMakeLists.txt   # <-- add components + the deployment here
+            add_fprime_subdirectory(billee_deployment)
+                └── billee_deployment/CMakeLists.txt   # the deployment itself
 ```
 
-- Each **component** is a directory with a `.fpp` model + `.cpp`, listed here with
-  `add_fprime_subdirectory("${CMAKE_CURRENT_LIST_DIR}/<Name>")` and registered
-  inside its own `CMakeLists.txt` via `register_fprime_module`.
-- The **deployment** (the thing that actually links to an `.elf`) is a directory
-  with a `Top/` topology and `Main.cpp`, registered with
-  `register_fprime_executable` (or `register_fprime_deployment`), and added from
-  `Components/CMakeLists.txt` or `FprimeArduinoBilleeScm/CMakeLists.txt`.
+- Each **component** is a directory with a `.fpp` model + `.cpp`, added under
+  `FprimeArduinoBilleeScm/Components/` and registered via
+  `register_fprime_module` in its own `CMakeLists.txt`.
+- **`billee_deployment`** (the thing that actually links to an `.elf`) has a
+  `Top/` topology and `Main.cpp`, registered with `register_fprime_deployment`.
 
-There is **no deployment yet** — see next section.
+### Three things `billee_deployment/CMakeLists.txt` does that aren't obvious from the cookiecutter output
+
+1. **A sub-build guard fix.** `arduino-support.cmake`'s
+   `finalize_arduino_executable()` calls `setup_arduino_libraries()` before
+   checking whether this is F´'s lightweight sub-build info-cache pass — and
+   even that check is broken (it tests a misspelled variable name that never
+   matches F´ core's real one), so it can never fire on any board or F´
+   version. `billee_deployment/CMakeLists.txt` does the correct check itself,
+   first, plus defines a placeholder `__fprime_config` target so
+   `setup_arduino_libraries()`'s `add_dependencies()` call has something real
+   to point at (the actual config content still comes from F´'s real
+   `default_config` target). This is project-level CMake, not a submodule
+   edit — independent of board and F´ version.
+2. **Extra include roots for the nested deployment path.** The
+   `fprime-arduino-deployment-cookiecutter` template writes `#include
+   "billee_deployment/Top/X.hpp"`-style paths, assuming — as F´ deployments
+   normally do — that the deployment sits directly under `project_root`. This
+   repo's layout nests it one level deeper
+   (`FprimeArduinoBilleeScm/billee_deployment/`), so
+   `include_directories("${CMAKE_CURRENT_LIST_DIR}/.."
+   "${CMAKE_CURRENT_BINARY_DIR}/..")` is added explicitly rather than
+   restructuring the project to match the cookiecutter's assumption.
+3. **`CONFIGURATION_OVERRIDES`** in `billee_deployment/config/CMakeLists.txt`
+   fix a handful of bugs in the cookiecutter's generated `config/` files —
+   see the next section.
 
 ---
 
-## `requirements.txt`
+## Deployment config overrides — what's real, and what's cookiecutter noise
 
-`make setup` installs the Python deps **into `fprime-venv`** in two passes (after
-`git submodule update --init --recursive` has populated `lib/`):
+`billee_deployment/config/CMakeLists.txt` registers several
+`CONFIGURATION_OVERRIDES`. Two categories, worth telling apart:
 
-1. `pip install -r requirements.txt` → `-r ./lib/fprime/requirements.txt`
-   (fprime-tools, fpp, fprime-gds, `cmake==3.26.0`, ninja, …).
-2. `pip install -r lib/fprime-arduino/requirements.txt`
-   (`arduino-cli-cmake-wrapper==0.2.0a1`, `cmake>=3.26.4`).
+**Three upstream cookiecutter bugs — fixed at the template level, in a fork
+we control, not re-fixed by hand in this project's files:**
 
-Two passes because a single resolve of both files fails: `lib/fprime` pins
-`cmake==3.26.0` while `lib/fprime-arduino` requires `cmake>=3.26.4`. Installed in
-sequence the newer `cmake` wins and `pip check` stays clean. (If a CMake 4.x
-regression bites, pin `cmake~=3.31` in a `constraints.txt` and
-`pip install -c constraints.txt ...`.)
+`settings.ini`'s `deployment_cookiecutter` points at
+[`LucaLanzi/fprime-arduino-deployment-cookiecutter`](https://github.com/LucaLanzi/fprime-arduino-deployment-cookiecutter),
+a fork of the upstream community template
+(`fprime-community/fprime-arduino-deployment-cookiecutter`), not the upstream
+repo itself. The fork's `main` branch has commits on top of upstream that fix
+three bugs, all confirmed independent of F´ version (checked against v4.1.1
+and v4.3.0) and of target board — I checked upstream's entire commit history
+and live tip directly and none has ever been fixed there, and its only tag
+(`v3.5.1`) predates the `config/` folder existing at all, so there was no
+existing version to pin to instead of forking:
+
+- `config/FpConfig.h`: the cookiecutter's generated file `#define`s ~36
+  constants (buffer sizes, OS handle sizes, `FW_CONTEXT_DONT_CARE`, etc.)
+  that are *also* declared as FPP `constant`s in F´ core
+  (`lib/fprime/default/config/{FpConstants,PlatformCfg}.fpp`), autocoded into
+  a real `enum`. Defining the same name both ways makes the preprocessor
+  blindly substitute the macro's value into the enum's own initializer
+  wherever both headers land in one translation unit (e.g. `enum {
+  FW_COM_BUFFER_MAX_SIZE = 512 }` becomes `enum { 128 = 512 }`) — a hard
+  syntax error, not a value conflict an `#ifndef` guard can resolve (an
+  enumerator isn't a macro, so it's invisible to `#ifndef` regardless of
+  include order). All ~36 are simply removed in the fork; the framework's
+  own default sizes provide them.
+- `config/ComCcsdsConfig/ComCcsdsConfig.fpp`: the cookiecutter's version
+  omits `QueueSizes.aggregator`/`StackSizes.aggregator`, which
+  `Svc/Subtopologies/ComCcsds/ComCcsds.fpp` requires unconditionally. Added
+  in the fork.
+- `config/ComCcsdsConfig/ComCcsdsConfig.fpp`: `BuffMgr.commsBuffSize` was set
+  to `140`, far smaller than F´ core's own default of `2048`
+  (`Svc/Subtopologies/ComCcsds/ComCcsdsConfig/ComCcsdsConfig.fpp`).
+  `Svc::Ccsds::SpacePacketFramer::dataIn_handler` allocates exactly
+  `SpacePacketHeader::SERIALIZED_SIZE + data.getSize()` bytes from this
+  buffer bin per outgoing frame — at 140 bytes, any single frame larger than
+  that (even a small burst of boot-time diagnostic events) overruns the
+  buffer and hits `FW_ASSERT(status == Fw::FW_SERIALIZE_OK, status)` with
+  `FW_SERIALIZE_NO_ROOM_LEFT`. **This one doesn't just fail to build — it
+  builds and flashes fine, then crashes and reboots the board in a loop the
+  moment it tries to downlink its first real frame**, which looks exactly
+  like a ground-station/comm-channel connection problem (`fprime-gds` opens
+  the serial port fine but can never hold a stable connection) rather than
+  what it actually is: confirmed by capturing the board's own crash output
+  directly over its serial port mid-loop. Restored to match F´ core's own
+  default value in the fork.
+
+Because `fprime-tools`' cookiecutter integration (`fprime.util.cookiecutter_wrapper`)
+never passes cookiecutter a `checkout` ref — it always clones/reuses whatever
+sits on `deployment_cookiecutter`'s URL's default branch — there's no way to
+pin a specific tag/commit through `settings.ini` alone. The fork's `main`
+branch stands in for that pin instead: nobody else pushes to it, so it only
+changes when this project deliberately changes it. Regenerating
+`billee_deployment/` from scratch today would come out with all three fixes
+already applied, no hand-editing needed.
+
+**A genuine, non-cookiecutter, non-RAM fix:**
+- `config/PlatformCfg.fpp`: overrides `FW_FILE_HANDLE_MAX_SIZE` (16→32) and
+  `FW_DIRECTORY_HANDLE_MAX_SIZE` (16→48). This isn't about RAM — Teensy 4.1
+  has plenty. `Os::Arduino::ArduinoFile`/`ArduinoDirectory` (the SD-card-backed
+  `Os::File`/`Os::Directory` implementation fprime-arduino provides, compiled
+  here regardless of this deployment's own "no filesystem" choice — F´
+  compiles every registered `Os` implementation as its own library whether
+  it's linked into the final executable or not) hold a real Arduino SD-library
+  `File` object, which doesn't fit in the framework default's 16 bytes
+  (`Os::Delegate`'s `"Handle size not large enough"` static_assert fires
+  otherwise). This applies to any Arduino-family board using the SD-backed
+  file implementation, not just Teensy.
+
+If you ever regenerate `billee_deployment/` from the cookiecutter again, the
+fork's two fixes come along automatically — but still verify the
+`PlatformCfg.fpp` handle-size override below, since that one is deliberately
+*not* part of the fork (it's a fix specific to using the SD-backed file
+implementation, not something every user of the template needs).
+
+---
+
+## Working with the IO pins — GPIO, I2C, SPI, analog, PWM
+
+`lib/fprime-arduino/Arduino/Drv/` ships board-generic driver components —
+they use plain Arduino-core calls (`pinMode`, `TwoWire`, `SPIClass`,
+`analogRead`/`analogWrite`) that compile against whatever `Arduino.h`/
+`Wire.h`/`SPI.h` the board package provides, so they work unmodified on
+Teensy 4.1. Instantiate one in a component's topology, then configure it by
+calling `open()` (or the port-specific setup call) once, typically from your
+topology's config phase or the component's own `init()`.
+
+- **`Arduino::GpioDriver`** — `open(FwIndexType pin, GpioDirection direction)`,
+  where `direction` is `Arduino::GpioDriver::IN` or `::OUT` and `pin` is a
+  plain Teensy pin number (e.g. `2`). Exposes `gpioWrite`/`gpioRead` sync
+  ports (`Drv.GpioWrite`/`Drv.GpioRead`).
+- **`Arduino::I2cDriver`** — `open(TwoWire* wire)`. Teensy 4.1 has **three**
+  hardware I2C buses: pass `&Wire`, `&Wire1`, or `&Wire2`. Exposes a
+  `Drv.I2c` port.
+- **`Arduino::SpiDriver`** — `open(SPIClass* spi, SpiFrequency clock,
+  FwIndexType ss_pin, SpiMode spiMode = ..., SpiBitOrder bitOrder = ...)`.
+  Teensy 4.1 has **three** hardware SPI buses: pass `&SPI`, `&SPI1`, or
+  `&SPI2`. Chip-select is bit-banged via `digitalWrite` on `ss_pin`, not a
+  hardware CS line. Exposes a `Drv.Spi` port.
+- **`Arduino::AnalogDriver`** — `open(FwIndexType pin, GpioDirection
+  direction)`, ports `setAnalog`/`readAnalog` (write 0–255 scaled internally;
+  read range depends on ADC resolution — 10-bit by default unless
+  `analogReadResolution()` is called elsewhere).
+- **`Arduino::PwmDriver`** — `open(FwIndexType gpio)`, port `setDutyCycle`
+  (U8 0–100%, scaled to `analogWrite(pin, 255 * pct / 100)` internally).
+
+**One thing that's automatic, not something you configure**:
+`Arduino::HardwareRateDriver` auto-selects `HardwareRateDriverTeensy.cpp`
+(driving the base rate group off a hardware timer ISR via Teensyduino's
+`IntervalTimer`) based on `ARDUINO_FQBN` starting with `teensy` — no
+deployment-level change needed, just be aware the rate-group clock source is
+a real hardware timer on this board, not the software-loop timing a
+`basic`/AVR-class board would use.
 
 ---
 
@@ -168,10 +320,15 @@ regression bites, pin `cmake~=3.31` in a `constraints.txt` and
 |---|---|
 | `make help` | List targets (default). |
 | `make setup` | `python3 -m venv fprime-venv`, `git submodule update --init --recursive`, then `pip install` the framework then fprime-arduino requirements into the venv (two passes — see below). |
-| `make setup-arduino` | Download `arduino-cli` into `fprime-venv/bin`, `arduino-cli config init`, add the MegaCore board-manager URL, `core install MegaCore:avr`, `lib install Time`. |
-| `make generate` | `fprime-util generate atmega2560` (needs a deployment). |
-| `make build` | `fprime-util build atmega2560` (needs a deployment). |
+| `make setup-arduino` | Install `arduino-cli` into `fprime-venv/bin`, add PJRC's board-manager URL, `core install teensy:avr@1.59.0`, `lib install Time`. |
+| `make generate` | `fprime-util generate teensy41` (needs a deployment — already created, see below). |
+| `make build` | `fprime-util build teensy41`. |
 | `make clean` | `fprime-util purge --force` + remove `build-*` / `build-artifacts`. |
+| `make gds` | Start GDS locally against the board (`uart_gds.sh`, port 5001). `make gds mac` uses `MAC_UART_DEVICE`. |
+| `make install-gds-service` | Install the `billee-scm-lan-gds` systemd service (headless Jetson, LAN-reachable, auto-retry). |
+| `make uninstall-gds-service` | Disable and remove that service. |
+| `make gds-service-status` | `systemctl status` + recent logs for the service. |
+| `make gds-attach` | Attach to the service's detached `screen` session. |
 
 Override the target board with `make build TOOLCHAIN=<name>`.
 
@@ -185,44 +342,203 @@ to the board later also needs `usbipd` (see fprime-arduino's
 
 ```bash
 make setup           # fprime-venv + submodules + Python deps
-make setup-arduino   # arduino-cli + MegaCore:avr core + Time library
+make setup-arduino   # arduino-cli + teensy:avr core + Time library
+```
+
+### If `pip install -r requirements.txt` fails on `pyzmq`
+
+`lib/fprime`'s `requirements.txt` pins an exact `pyzmq` version that may
+predate prebuilt wheels for very new Python releases, and building it from
+source can fail against a modern `scikit-build-core`. If you hit this,
+install the three F´ tool packages directly with `--no-deps` (they don't
+need `pyzmq`'s functionality for `fprime-util generate`/`build`, only its own
+transitive pin was blocking the install) and, separately, make sure
+`setuptools<81` is installed (very recent `setuptools` dropped bundling
+`pkg_resources`, which the pinned `fprime-tools` still imports):
+
+```bash
+pip install "setuptools<81"
+pip install --no-deps fprime-tools==4.1.0 fprime-gds==4.1.0 fprime-fpp==3.1.0
+```
+
+Because this installs `fprime-gds` with `--no-deps`, its own dependencies
+(beyond the three pinned tool packages themselves) aren't pulled in either.
+`pyserial` happens to already be present transitively, but `crc` (used by
+`fprime-gds`'s default CCSDS space-packet framer) is not — without it,
+`fprime-gds` fails immediately with `ModuleNotFoundError: No module named
+'crc'`. Install it once, separately:
+
+```bash
+pip install crc
 ```
 
 ---
 
-## Next steps — getting the framework to run
+## Building the deployment
 
-1. **Create a deployment.** From inside `FprimeArduinoBilleeScm/`:
+The deployment already exists at `FprimeArduinoBilleeScm/billee_deployment/`.
+To build:
+
+```bash
+make generate
+make build
+```
+
+Output lands in `build-fprime-automatic-teensy41/` and
+`build-artifacts/teensy41/` (`.elf`, plus the Teensy `.hex`). The build's own
+post-link step prints a memory summary — expect flash usage in the low
+hundreds of KB (of 8 MB) and RAM usage well under 1 MB; there is no
+meaningful size pressure on this target the way there was on AVR.
+
+To regenerate the deployment from scratch (e.g. to change the communication
+driver, filesystem, or framing protocol choice):
+
+```bash
+cd FprimeArduinoBilleeScm
+../fprime-venv/bin/fprime-util new --deployment
+```
+
+then re-check the config overrides described above against the fresh output.
+
+---
+
+## Upload + flashing
+
+There is no `arduino-cli upload` step — flashing is folded into the build's
+own post-link hook, which runs the Teensy board package's bundled
+`teensy_post_compile`/`teensy_reboot` tools. After `make build`, the
+**Teensyduino Loader** GUI application should auto-launch, pre-loaded with
+the just-built `.hex` from
+`build-artifacts/teensy41/FprimeArduinoBilleeScm_billee_deployment/bin/`. If
+it doesn't appear, open it manually and point it at that file. Flashing
+itself requires a **physical press of the reset button on the board** —
+Teensy 4.1 doesn't reboot into the bootloader from software alone.
+
+**Linux only**: copy fprime-arduino's udev rule so your user can access the
+board without root:
+
+```bash
+sudo cp lib/fprime-arduino/docs/rules/00-teensy.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+```
+
+**macOS**: no extra driver needed — Teensy 4.x uses native USB CDC/HID.
+
+See fprime-arduino's
+[`docs/uploading/teensy.md`](https://github.com/fprime-community/fprime-arduino/blob/main/docs/uploading/teensy.md)
+for the canonical version of the flashing instructions above.
+
+---
+
+## Running `fprime-gds` against the board
+
+`billee_deployment/Top/billee_deploymentTopology.cpp` wires `comDriver`
+(`Arduino.StreamDriver`) to `&Serial` — Teensy 4.1's native USB serial port —
+so the same USB cable used to flash the board also carries F´'s CCSDS comm
+traffic once it's running. There's no separate radio/UART cable needed on
+the bench: GDS talks to the board over USB directly.
+
+Four scripts handle this, mirrored from the same pattern
+[`fprime-billee-rcm`](../fprime-billee-rcm) uses — the two projects are meant
+to run side by side on the same Jetson, each with its own GDS dashboard:
+
+| Script | Purpose |
+|---|---|
+| [`uart_gds.sh`](uart_gds.sh) | Local launcher — verifies the venv has `fprime-gds`, the dictionary exists, and the serial device is a character device, then starts GDS with no local deployment executable, UART comm, and CCSDS framing. |
+| [`lan_uart_gds.sh`](lan_uart_gds.sh) | Same launcher, web UI bound to `0.0.0.0` for LAN access (headless Jetson you reach from another machine). |
+| [`gds-run-loop.sh`](gds-run-loop.sh) | Runs `lan_uart_gds.sh` forever, retrying 10s after any exit. |
+| [`install-lan-gds-service.sh`](install-lan-gds-service.sh) | Installs `screen` + the `billee-scm-lan-gds` systemd service (`make install-gds-service`). |
+
+**Port 5001, not `fprime-gds`'s own default of 5000** — both scripts pass
+`--gui-port 5001` explicitly (override with `GDS_FLASK_PORT=<port>`).
+`fprime-billee-rcm`'s equivalent scripts default to port 5000, and since both
+deployments run on the same Jetson, they'd otherwise collide on the same
+dashboard port. With this split, both are reachable side by side from one
+browser: `http://<jetson-ip>:5000` for the rover (fprime-billee-rcm) and
+`http://<jetson-ip>:5001` for this Science Control Module deployment.
+
+### Quick start — local (Mac or native Linux)
+
+```bash
+make gds            # Linux: defaults UART_DEVICE to /dev/ttyACM0
+make gds mac         # macOS: uses MAC_UART_DEVICE (see Makefile, override if yours differs)
+```
+
+`uart_gds.sh` verifies the venv has `fprime-gds`, the generated dictionary
+exists, and the serial device is a character device, then starts GDS with no
+local deployment executable, the generated dictionary, UART communication,
+and `space-packet-space-data-link` CCSDS framing — opening its dashboard at
+`http://127.0.0.1:5001`.
+
+To find the device path first, see [Running fprime-gds against the
+board](#running-fprime-gds-against-the-board) below, or just:
+```bash
+ls /dev/cu.usbmodem*        # macOS
+ls /dev/ttyACM*             # Linux
+```
+
+### Run GDS as a service (headless Jetson)
+
+`make install-gds-service` installs a systemd service that runs
+`lan_uart_gds.sh` at every boot inside a **detached `screen` session**, so the
+GDS comes up unattended and you can attach to it live over SSH — same
+mechanism `fprime-billee-rcm` uses, distinct service name
+(`billee-scm-lan-gds` vs. `billee-lan-gds`) so both can run at once.
+
+```bash
+make install-gds-service     # sudo; run from your normal account (needs $SUDO_USER)
+```
+
+What it does ([`install-lan-gds-service.sh`](install-lan-gds-service.sh)):
+
+- `apt-get install screen` if it isn't already present.
+- Writes `/etc/systemd/system/billee-scm-lan-gds.service`, running
+  `screen -DmS billee-scm-lan-gds gds-run-loop.sh` as your user, in the
+  `dialout` group, after `network-online.target`, then
+  `systemctl enable --now`.
+- [`gds-run-loop.sh`](gds-run-loop.sh) runs `lan_uart_gds.sh` in a loop: on
+  any exit — board unplugged, missing build, crash — it waits **10 s**
+  (`GDS_RETRY_SECONDS`) and starts it again. `Restart=always` /
+  `RestartSec=10` in the unit is a backstop if `screen` itself dies.
+
+Managing it:
+
+| Command | Purpose |
+| --- | --- |
+| `make gds-attach` | Attach to the live `screen` session (`Ctrl-A` then `D` to detach) |
+| `make gds-service-status` | `systemctl status` + recent `journalctl` lines |
+| `sudo systemctl stop billee-scm-lan-gds` | Stop it (stays enabled for next boot) |
+| `make uninstall-gds-service` | Disable and remove the unit |
+
+Run `screen -r billee-scm-lan-gds` as the same user the service runs as.
+
+### Manual invocation (what the scripts do, unwrapped)
+
+1. Find the device path (after the board is flashed and running):
    ```bash
-   ../fprime-venv/bin/fprime-util new --deployment
+   ls /dev/cu.usbmodem*        # macOS
+   ls /dev/ttyACM*             # Linux
    ```
-   This pulls the `deployment_cookiecutter` from `settings.ini` and generates a
-   `Top/` topology, `Main.cpp`, and the deployment's own `config/`. Keep it
-   minimal — on 8 KB SRAM, start from fprime-arduino's `LedBlinker` topology,
-   **not** the full CDH stack.
-2. **Register it** in CMake (see "Library / deployment CMake").
-3. **Wire `Main.cpp`** to the baremetal main loop: build the topology in `setup()`,
-   then cycle the baremetal scheduler + hardware rate driver in `loop()` / a bare
-   `while (true)`. Use fprime-arduino's `ATmegaSerialDriver` for the ground link
-   and `ATmegaTime` for the time base.
-4. **Build:**
+2. Launch GDS, pointed at the build's generated dictionary, with `-n` so it
+   doesn't try to launch a native binary (there isn't one to run — the
+   deployment is already running on the board), and `--communication-selection
+   uart` since GDS defaults to its `ip` adapter otherwise:
    ```bash
-   make generate
-   make build
+   fprime-gds -n \
+       --dictionary build-artifacts/teensy41/FprimeArduinoBilleeScm_billee_deployment/dict/billee_deploymentTopologyDictionary.json \
+       --communication-selection uart \
+       --uart-device /dev/cu.usbmodem123456701 \
+       --uart-baud 115200 \
+       --gui-port 5001
    ```
-   Output lands in `build-fprime-automatic-atmega2560/` and
-   `build-artifacts/atmega2560/` (`.elf`, plus a MegaCore `.hex`).
-5. **Check RAM fits:**
-   ```bash
-   fprime-venv/bin/baremetal-size atmega2560
-   ```
-   Trim the deployment's `config/` values and component queue/buffer depths until
-   `.bss` fits in 8 KB.
-6. **Upload + GDS** (not handled by this repo — pointers only): `arduino-cli
-   upload` with FQBN `MegaCore:avr:2560` and the board's serial port, then run
-   `fprime-gds` against that same serial port. See fprime-arduino's
-   [`docs/arduino-cli-install.md`](https://github.com/fprime-community/fprime-arduino/blob/main/docs/arduino-cli-install.md)
-   and [`docs/board-list.md`](https://github.com/fprime-community/fprime-arduino/blob/main/docs/board-list.md).
+   Replace `--uart-device` with whatever step 1 printed. `115200` matches
+   `Main.cpp`'s `Serial.begin(115200)` — Teensy's port is native USB CDC, so
+   the OS mostly ignores the actual baud value, but `fprime-gds` still
+   requires one be passed.
+3. GDS opens its web GUI at `http://127.0.0.1:5001` once connected, showing
+   live telemetry/events and letting you dispatch commands to the running
+   deployment. Add `--gui-addr 0.0.0.0` (what `lan_uart_gds.sh` does) to make
+   it reachable from another machine on the LAN instead.
 
 ---
 
