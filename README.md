@@ -321,8 +321,10 @@ a real hardware timer on this board, not the software-loop timing a
 | `make help` | List targets (default). |
 | `make setup` | `python3 -m venv fprime-venv`, `git submodule update --init --recursive`, then `pip install` the framework then fprime-arduino requirements into the venv (two passes — see below). |
 | `make setup-arduino` | Install `arduino-cli` into `fprime-venv/bin`, add PJRC's board-manager URL, `core install teensy:avr@1.59.0`, `lib install Time`. |
+| `make setup-flash-tools` | Install `teensy_loader_cli` (via apt) for headless flashing — no GUI Teensy Loader needed. Used by `make flash`. |
 | `make generate` | `fprime-util generate teensy41` (needs a deployment — already created, see below). |
 | `make build` | `fprime-util build teensy41`. |
+| `make flash` | `fprime-util build teensy41 --target flash-teensy41` — builds, then flashes the connected board via `teensy_loader_cli`. |
 | `make clean` | `fprime-util purge --force` + remove `build-*` / `build-artifacts`. |
 | `make gds` | Start GDS locally against the board (`uart_gds.sh`, port 5001). `make gds mac` uses `MAC_UART_DEVICE`. |
 | `make install-gds-service` | Install the `billee-scm-lan-gds` systemd service (headless Jetson, LAN-reachable, auto-retry). |
@@ -341,8 +343,9 @@ to the board later also needs `usbipd` (see fprime-arduino's
 [`docs/arduino-cli-install.md`](https://github.com/fprime-community/fprime-arduino/blob/main/docs/arduino-cli-install.md)).
 
 ```bash
-make setup           # fprime-venv + submodules + Python deps
-make setup-arduino   # arduino-cli + teensy:avr core + Time library
+make setup             # fprime-venv + submodules + Python deps
+make setup-arduino     # arduino-cli + teensy:avr core + Time library
+make setup-flash-tools # teensy_loader_cli, for `make flash`
 ```
 
 ### If `pip install -r requirements.txt` fails on `pyzmq`

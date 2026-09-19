@@ -22,7 +22,7 @@ MAC_UART_DEVICE ?= /dev/cu.usbmodem141478301
 GDS_SERVICE      := billee-scm-lan-gds
 
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-arduino setup-udev generate build clean print-banner \
+.PHONY: help setup setup-arduino setup-udev setup-flash-tools generate build flash clean print-banner \
         gds install-gds-service uninstall-gds-service gds-service-status gds-attach mac
 
 help: ## Show available commands
@@ -30,8 +30,8 @@ help: ## Show available commands
 	@echo "Available commands:"
 	@grep -E '^[A-Za-z0-9_.-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*##"} {printf "  %-16s %s\n", $$1, $$2}'
 	@echo
-	@echo "Typical first run:  make setup && make setup-arduino"
-	@echo "Then (once a deployment exists):  make generate && make build"
+	@echo "Typical first run:  make setup && make setup-arduino && make setup-flash-tools"
+	@echo "Then (once a deployment exists):  make generate && make build && make flash"
 
 setup: ## Create fprime-venv, init submodules, install Python deps into the venv
 	$(PYTHON) -m venv fprime-venv
@@ -67,11 +67,31 @@ setup-arduino: ## Install arduino-cli into the venv + Teensy board package + Tim
 	@echo "[OK] make setup-arduino complete"
 	@$(MAKE) --no-print-directory print-banner
 
+setup-flash-tools: ## Install teensy_loader_cli + its udev rule for headless flashing (used by `make flash`)
+	@if command -v teensy_loader_cli >/dev/null 2>&1; then \
+		echo "[INFO] teensy_loader_cli already present: $$(command -v teensy_loader_cli)"; \
+	else \
+		echo "[INFO] Installing teensy-loader-cli via apt ..."; \
+		sudo apt-get update && sudo apt-get install -y teensy-loader-cli; \
+	fi
+	@TEENSY_RULES="$$(find $(HOME)/.arduino15/packages/teensy/tools/teensy-tools -maxdepth 2 -name '00-teensy.rules' 2>/dev/null | sort -V | tail -1)"; \
+	if [ -z "$$TEENSY_RULES" ]; then \
+		echo "[WARN] Could not find 00-teensy.rules under ~/.arduino15 (run 'make setup-arduino' first) - flashing may fail with 'Unable to claim interface, check USB permissions'"; \
+	else \
+		sudo cp "$$TEENSY_RULES" /etc/udev/rules.d/00-teensy.rules; \
+		sudo udevadm control --reload-rules 2>/dev/null && sudo udevadm trigger 2>/dev/null || true; \
+		echo "[INFO] Installed $$TEENSY_RULES -> /etc/udev/rules.d/00-teensy.rules"; \
+	fi
+	@echo "[OK] make setup-flash-tools complete"
+
 generate: ## Run fprime-util generate for the Arduino target (needs a deployment)
 	$(VENV_FPRIME_UTIL) generate $(TOOLCHAIN)
 
 build: ## Build the Arduino target (needs a deployment)
 	$(VENV_FPRIME_UTIL) build $(TOOLCHAIN)
+
+flash: ## Build the Arduino target and flash it onto the connected Teensy (needs teensy_loader_cli, see setup-flash-tools)
+	$(VENV_FPRIME_UTIL) build $(TOOLCHAIN) --target flash-$(TOOLCHAIN)
 
 clean: ## Purge F´ build caches and build artifacts
 	-$(VENV_FPRIME_UTIL) purge --force
