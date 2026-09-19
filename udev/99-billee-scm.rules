@@ -1,0 +1,25 @@
+# Stable device symlink for the BILLEE Science Control Module (Teensy 4.1).
+#
+# On a Jetson also running fprime-billee-rcm's GDS, /dev/ttyACMx numbering is
+# assigned by USB enumeration order, not device identity -- it is NOT stable
+# across a reboot (this bit us: the RCM and SCM boards swapped
+# ttyACM0/ttyACM1 between boots, so hardcoded device paths pointed GDS at the
+# wrong board). This rule matches the Teensy's runtime USB identity
+# (confirmed via `udevadm info -a -n /dev/ttyACMx` on the physical hardware:
+# idVendor 16c0, idProduct 0483) and creates a persistent /dev/ttyBILLEE_SCM
+# symlink that always points at this board, regardless of which raw ttyACMx
+# node the kernel assigns it.
+#
+# idVendor 16c0 + the 04* product wildcard mirrors PJRC's own vendored
+# 00-teensy.rules (lib/fprime-arduino/docs/rules/), which covers the whole
+# Teensy product line generically rather than one exact model PID. Correct
+# as long as only one Teensy is attached to the Jetson at a time. If a
+# second one is ever attached simultaneously, match on the serial below
+# instead (ATTRS{serial}=="14147830", captured from this specific board) to
+# disambiguate individual units.
+#
+# Install: `make setup-udev` (or `make setup`, which chains it), or manually:
+#   sudo cp udev/99-billee-scm.rules /etc/udev/rules.d/99-billee-scm.rules
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="16c0", ATTRS{idProduct}=="04*", SYMLINK+="ttyBILLEE_SCM", MODE:="0666"

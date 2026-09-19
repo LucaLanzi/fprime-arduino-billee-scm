@@ -2,13 +2,23 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-UART_DEVICE="${UART_DEVICE:-/dev/ttyACM0}"
+# /dev/ttyBILLEE_SCM is a udev-created symlink (udev/99-billee-scm.rules,
+# installed by `make setup`/`make setup-udev`) that always resolves to this
+# board regardless of which raw /dev/ttyACMx node the kernel assigns it --
+# that numbering isn't stable across a reboot when this deployment and
+# fprime-billee-rcm's are both attached to the same host.
+UART_DEVICE="${UART_DEVICE:-/dev/ttyBILLEE_SCM}"
 DICTIONARY_PATH="${DICTIONARY_PATH:-${PROJECT_ROOT}/build-artifacts/teensy41/FprimeArduinoBilleeScm_billee_deployment/dict/billee_deploymentTopologyDictionary.json}"
 GDS_BIN="${PROJECT_ROOT}/fprime-venv/bin/fprime-gds"
 # 5001, not fprime-gds's own default of 5000 - this project runs alongside
 # fprime-billee-rcm (which owns 5000) on the same Jetson, and each
 # deployment's GDS dashboard needs its own port to avoid colliding.
 GDS_FLASK_PORT="${GDS_FLASK_PORT:-5001}"
+# Distinct from fprime-billee-rcm's own IPC socket pair (-rcm suffix) so the
+# two deployments' GDS instances can run side by side on the same host
+# without sharing an internal ZMQ bridge socket.
+ZMQ_SERVER_IN="${ZMQ_SERVER_IN:-ipc:///tmp/fprime-server-in-scm}"
+ZMQ_SERVER_OUT="${ZMQ_SERVER_OUT:-ipc:///tmp/fprime-server-out-scm}"
 
 # Killing a previous `make gds` session by its top-level PID alone (rather than its whole
 # process group -- e.g. a plain `kill -9 <pid>` instead of Ctrl+C in the owning terminal)
@@ -27,11 +37,15 @@ if command -v lsof >/dev/null 2>&1; then
 fi
 if command -v pkill >/dev/null 2>&1; then
     pkill -9 -f "flask run --host .* --port ${GDS_FLASK_PORT}" 2>/dev/null || true
-    pkill -9 -f "fprime_gds.executables.comm" 2>/dev/null || true
-    pkill -9 -f "fprime_gds.executables.apps.CustomDataHandlers" 2>/dev/null || true
+    # Scoped to this repo's own venv path -- an unscoped match here would also
+    # kill fprime-billee-rcm's live comm/CustomDataHandlers processes when
+    # both deployments run on the same host (confirmed happening in
+    # practice: starting one killed the other's already-running comm process).
+    pkill -9 -f "${PROJECT_ROOT}/fprime-venv/.*fprime_gds.executables.comm" 2>/dev/null || true
+    pkill -9 -f "${PROJECT_ROOT}/fprime-venv/.*fprime_gds.executables.apps.CustomDataHandlers" 2>/dev/null || true
     pkill -9 -f "${GDS_BIN}" 2>/dev/null || true
 fi
-rm -f /tmp/fprime-server-in /tmp/fprime-server-out
+rm -f /tmp/fprime-server-in-scm /tmp/fprime-server-out-scm
 
 if [[ ! -x "${GDS_BIN}" ]]; then
     echo "F Prime GDS was not found at ${GDS_BIN}. Run 'make setup' first." >&2
@@ -57,4 +71,5 @@ exec "${GDS_BIN}" \
   --uart-skip-port-check \
   --uart-baud 115200 \
   --gui-port "${GDS_FLASK_PORT}" \
+  --zmq-transport "${ZMQ_SERVER_IN}" "${ZMQ_SERVER_OUT}" \
   "$@"

@@ -540,6 +540,39 @@ Run `screen -r billee-scm-lan-gds` as the same user the service runs as.
    deployment. Add `--gui-addr 0.0.0.0` (what `lan_uart_gds.sh` does) to make
    it reachable from another machine on the LAN instead.
 
+### Board unreachable or "connects but no traffic" on a shared Jetson
+
+This project and [`fprime-billee-rcm`](../fprime-billee-rcm) normally run
+side by side on the same Jetson. Two distinct problems can both produce
+"GDS looks connected but there's no telemetry" — see
+[`fprime-billee-rcm`'s equivalent troubleshooting
+section](../fprime-billee-rcm/README.md#board-unreachable-or-connects-but-no-traffic-on-a-shared-jetson)
+for the full write-up and the live evidence that led to both fixes; summary:
+
+**1. `/dev/ttyACMx` numbering isn't stable across a reboot.** Which raw
+device node each board gets is assigned by USB enumeration order, not
+device identity. Fixed by a project-owned udev rule
+(`udev/99-billee-scm.rules`, installed automatically by `make setup` via
+`make setup-udev`) that creates a persistent `/dev/ttyBILLEE_SCM` symlink
+keyed on this board's USB identity (`16C0:04xx`), always pointing at the
+Teensy regardless of which `ttyACMx` node the kernel assigns it.
+`uart_gds.sh`/`lan_uart_gds.sh` and the systemd service now default to this
+symlink instead of a hardcoded `ttyACM1` guess.
+
+**2. Starting one deployment's GDS could silently kill the other's.**
+`uart_gds.sh`/`lan_uart_gds.sh` clean up stale processes on every startup
+with `pkill -9 -f "fprime_gds.executables.comm"` — a pattern that matched by
+bare module name, not by which repo/venv launched it, so starting this
+project's GDS while `fprime-billee-rcm`'s was already running could kill
+its comm subprocess as collateral damage (and vice versa). Fixed by scoping
+the cleanup patterns to this repo's own `fprime-venv` path, and by giving
+each deployment its own explicit `--zmq-transport` IPC socket pair
+(`/tmp/fprime-server-{in,out}-scm` here, `...-rcm` on the RCM side) instead
+of relying on `fprime-gds` version-dependent defaults.
+
+macOS device paths (`/dev/cu.usbmodem*`) aren't affected by either issue —
+this is Jetson/Linux-specific.
+
 ---
 
 **F´ website:** https://fprime.jpl.nasa.gov &nbsp;·&nbsp;

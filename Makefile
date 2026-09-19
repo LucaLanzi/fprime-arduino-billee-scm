@@ -22,7 +22,7 @@ MAC_UART_DEVICE ?= /dev/cu.usbmodem141478301
 GDS_SERVICE      := billee-scm-lan-gds
 
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-arduino generate build clean print-banner \
+.PHONY: help setup setup-arduino setup-udev generate build clean print-banner \
         gds install-gds-service uninstall-gds-service gds-service-status gds-attach mac
 
 help: ## Show available commands
@@ -41,8 +41,14 @@ setup: ## Create fprime-venv, init submodules, install Python deps into the venv
 	# fprime-arduino deps as a second pass: lib/fprime pins cmake==3.26.0 and
 	# lib/fprime-arduino needs cmake>=3.26.4, which one pip resolve pass rejects.
 	$(VENV_PIP) install -r lib/fprime-arduino/requirements.txt
+	-@$(MAKE) --no-print-directory setup-udev || echo "[WARN] udev symlink rule not installed — GDS will fall back to raw /dev/ttyACMx paths, see README"
 	@echo "[OK] make setup complete — next: make setup-arduino"
 	@$(MAKE) --no-print-directory print-banner
+
+setup-udev: ## Install the udev rule giving this board a stable /dev/ttyBILLEE_SCM symlink
+	@sudo cp udev/99-billee-scm.rules /etc/udev/rules.d/99-billee-scm.rules
+	@sudo udevadm control --reload-rules 2>/dev/null && sudo udevadm trigger 2>/dev/null || true
+	@echo "[INFO] Installed udev rule -> /dev/ttyBILLEE_SCM (replug the board if it's already connected)"
 
 setup-arduino: ## Install arduino-cli into the venv + Teensy board package + Time library
 	@test -x "$(VENV_PYTHON)" || { echo "[ERROR] run 'make setup' first"; exit 1; }
