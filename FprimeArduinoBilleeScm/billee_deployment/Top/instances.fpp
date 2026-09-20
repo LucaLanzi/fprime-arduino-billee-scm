@@ -28,7 +28,7 @@ module billee_deployment {
     stack size Default.STACK_SIZE \
     priority 97
 
-  instance relayManager: billeeScm.RelayManager base id 0x4A00 \
+  instance pumpManager: billeeScm.PumpManager base id 0x4A00 \
     queue size Default.QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 96
@@ -60,12 +60,12 @@ module billee_deployment {
 
   instance rateDriver: Arduino.HardwareRateDriver base id 0x4900
 
-  instance relay1Gpio: Arduino.GpioDriver base id 0x4B00
+  instance pump1Gpio: Arduino.GpioDriver base id 0x4B00
 
-  instance relay2Gpio: Arduino.GpioDriver base id 0x4C00
+  instance pump2Gpio: Arduino.GpioDriver base id 0x4C00
 
-  instance relay3Gpio: Arduino.GpioDriver base id 0x4D00
+  instance pump3Gpio: Arduino.GpioDriver base id 0x4D00
 
-  instance relay4Gpio: Arduino.GpioDriver base id 0x4E00
+  instance pump4Gpio: Arduino.GpioDriver base id 0x4E00
 
 }

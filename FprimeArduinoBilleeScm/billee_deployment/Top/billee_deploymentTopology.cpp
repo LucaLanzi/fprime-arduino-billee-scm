@@ -61,10 +61,10 @@ void setupTopology(const TopologyState& state) {
 
     comDriver.configure(&Serial);
 
-    relay1Gpio.open(1, Arduino::GpioDriver::OUT);
-    relay2Gpio.open(2, Arduino::GpioDriver::OUT);
-    relay3Gpio.open(3, Arduino::GpioDriver::OUT);
-    relay4Gpio.open(4, Arduino::GpioDriver::OUT);
+    pump1Gpio.open(1, Arduino::GpioDriver::OUT);
+    pump2Gpio.open(2, Arduino::GpioDriver::OUT);
+    pump3Gpio.open(3, Arduino::GpioDriver::OUT);
+    pump4Gpio.open(4, Arduino::GpioDriver::OUT);
 
     rateDriver.configure(1);
     rateDriver.start();
