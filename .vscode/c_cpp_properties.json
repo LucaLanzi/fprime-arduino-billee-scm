@@ -1,0 +1,13 @@
+{
+    "configurations": [
+        {
+            "name": "fprime-native",
+            "compileCommands": "${workspaceFolder}/build-fprime-automatic-native/compile_commands.json",
+            "compilerPath": "/usr/bin/c++",
+            "cStandard": "c17",
+            "cppStandard": "c++14",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

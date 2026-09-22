@@ -11,6 +11,5 @@ build-fprime-*
 /venv/
 /fprime-venv/
 /.idea/
-/.vscode/
 .DS_Store
 *.gcov
