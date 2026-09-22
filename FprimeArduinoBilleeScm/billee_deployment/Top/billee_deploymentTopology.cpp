@@ -66,6 +66,11 @@ void setupTopology(const TopologyState& state) {
     pump3Gpio.open(3, Arduino::GpioDriver::OUT);
     pump4Gpio.open(4, Arduino::GpioDriver::OUT);
 
+    uvGpio.open(5, Arduino::GpioDriver::OUT);
+
+    // Auto set to off when booting up
+    uvGpio.get_gpioWrite_InputPort(0)->invoke(Fw::Logic::LOW);
+
     rateDriver.configure(1);
     rateDriver.start();
 }
