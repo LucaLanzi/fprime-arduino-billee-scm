@@ -30,6 +30,8 @@ module billee_deployment {
     instance pump3Gpio
     instance pump4Gpio
     instance pumpManager
+    instance uvGpio 
+    instance uvManager 
     instance rateDriver
     instance rateGroup1
     instance rateGroupDriver
@@ -66,6 +68,7 @@ module billee_deployment {
       rateGroup1.RateGroupMemberOut[1] -> systemResources.run
       rateGroup1.RateGroupMemberOut[2] -> comDriver.schedIn
       rateGroup1.RateGroupMemberOut[3] -> pumpManager.run
+      rateGroup1.RateGroupMemberOut[4] -> uvManager.run
     }
 
     connections FaultProtection {
@@ -100,6 +103,8 @@ module billee_deployment {
       pumpManager.pump2Set -> pump2Gpio.gpioWrite
       pumpManager.pump3Set -> pump3Gpio.gpioWrite
       pumpManager.pump4Set -> pump4Gpio.gpioWrite
+
+      uvManager.uvSet -> uvGpio.gpioWrite
     }
 
   }

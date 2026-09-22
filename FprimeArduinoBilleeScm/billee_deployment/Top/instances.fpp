@@ -33,6 +33,11 @@ module billee_deployment {
     stack size Default.STACK_SIZE \
     priority 96
 
+  instance uvManager: billeeScm.UvManager base id 0x5000 \
+    queue size Default.QUEUE_SIZE \
+    stack size Default.STACK_SIZE \
+    priority 99
+
 
 
   # ----------------------------------------------------------------------
@@ -67,5 +72,7 @@ module billee_deployment {
   instance pump3Gpio: Arduino.GpioDriver base id 0x4D00
 
   instance pump4Gpio: Arduino.GpioDriver base id 0x4E00
+
+  instance uvGpio: Arduino.GpioDriver base id 0x5A00
 
 }
