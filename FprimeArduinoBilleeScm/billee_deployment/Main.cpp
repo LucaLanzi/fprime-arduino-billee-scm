@@ -13,6 +13,35 @@
 // Used for logging
 #include <Arduino/Os/Console.hpp>
 
+#include <Fw/Types/Assert.hpp>
+
+// A failed FW_ASSERT must leave the board reachable by `make flash`.
+//
+// Without a hook, Fw::AssertHook::doAssert() -> assert(0) -> abort(), which on Teensy is a silent
+// `while (1) asm("WFI")`. The passive rate group runs from the rate driver's timer interrupt, so an
+// assert raised there (e.g. a full async queue) hangs *inside an ISR*: the USB core is never serviced
+// again, the host can no longer enumerate the board or send the soft-reboot request, and only the
+// physical Program button recovers it. Rebooting into the Teensy bootloader instead means any assert
+// leaves the board waiting for firmware (USB 16c0:0478), where `make flash` works unattended.
+//
+// No text is printed here on purpose: Serial is the binary CCSDS channel fprime-gds is attached to.
+class RebootToBootloaderAssertHook : public Fw::AssertHook {
+  public:
+    void reportAssert(FILE_NAME_ARG file,
+                      FwSizeType lineNo,
+                      FwSizeType numArgs,
+                      FwAssertArgType arg1,
+                      FwAssertArgType arg2,
+                      FwAssertArgType arg3,
+                      FwAssertArgType arg4,
+                      FwAssertArgType arg5,
+                      FwAssertArgType arg6) override {}
+    void doAssert() override {
+        _reboot_Teensyduino_();  // runs the bootloader (bkpt #251); safe from ISR context, never returns
+    }
+};
+static RebootToBootloaderAssertHook rebootToBootloaderAssertHook;
+
 
 /**
  * \brief setup the program
@@ -21,6 +50,8 @@
  * 
  */
 void setup() {
+    rebootToBootloaderAssertHook.registerHook();
+
     // Initialize OSAL
     Os::init();
 
