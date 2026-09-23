@@ -25,13 +25,19 @@ module billee_deployment {
     instance comDriver
     instance eventLogger
     instance fatalHandler
+    instance limitSw1Gpio
+    instance limitSw2Gpio
+    instance limitSw3Gpio
+    instance limitSw4Gpio
     instance pump1Gpio
     instance pump2Gpio
     instance pump3Gpio
     instance pump4Gpio
     instance pumpManager
-    instance uvGpio 
-    instance uvManager 
+    instance roboclaw1Manager
+    instance roboclaw2Manager
+    instance uvGpio
+    instance uvManager
     instance rateDriver
     instance rateGroup1
     instance rateGroupDriver
@@ -69,6 +75,8 @@ module billee_deployment {
       rateGroup1.RateGroupMemberOut[2] -> comDriver.schedIn
       rateGroup1.RateGroupMemberOut[3] -> pumpManager.run
       rateGroup1.RateGroupMemberOut[4] -> uvManager.run
+      rateGroup1.RateGroupMemberOut[5] -> roboclaw1Manager.run
+      rateGroup1.RateGroupMemberOut[6] -> roboclaw2Manager.run
     }
 
     connections FaultProtection {
@@ -105,6 +113,11 @@ module billee_deployment {
       pumpManager.pump4Set -> pump4Gpio.gpioWrite
 
       uvManager.uvSet -> uvGpio.gpioWrite
+
+      roboclaw1Manager.limitSwGet[0] -> limitSw1Gpio.gpioRead
+      roboclaw1Manager.limitSwGet[1] -> limitSw2Gpio.gpioRead
+      roboclaw2Manager.limitSwGet[0] -> limitSw3Gpio.gpioRead
+      roboclaw2Manager.limitSwGet[1] -> limitSw4Gpio.gpioRead
     }
 
   }

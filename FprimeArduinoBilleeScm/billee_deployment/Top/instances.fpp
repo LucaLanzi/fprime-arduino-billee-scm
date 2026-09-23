@@ -38,6 +38,16 @@ module billee_deployment {
     stack size Default.STACK_SIZE \
     priority 99
 
+  instance roboclaw1Manager: billeeScm.RoboclawManager base id 0x5100 \
+    queue size Default.QUEUE_SIZE \
+    stack size Default.STACK_SIZE \
+    priority 97
+
+  instance roboclaw2Manager: billeeScm.RoboclawManager base id 0x5900 \
+    queue size Default.QUEUE_SIZE \
+    stack size Default.STACK_SIZE \
+    priority 97
+
 
 
   # ----------------------------------------------------------------------
@@ -74,5 +84,13 @@ module billee_deployment {
   instance pump4Gpio: Arduino.GpioDriver base id 0x4E00
 
   instance uvGpio: Arduino.GpioDriver base id 0x5A00
+
+  instance limitSw1Gpio: Arduino.GpioDriver base id 0x5200  @< roboclaw1Manager, Motor1
+
+  instance limitSw2Gpio: Arduino.GpioDriver base id 0x5300  @< roboclaw1Manager, Motor2
+
+  instance limitSw3Gpio: Arduino.GpioDriver base id 0x5B00  @< roboclaw2Manager, Motor1
+
+  instance limitSw4Gpio: Arduino.GpioDriver base id 0x5C00  @< roboclaw2Manager, Motor2
 
 }

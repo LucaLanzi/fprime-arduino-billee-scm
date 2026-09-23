@@ -1,6 +1,14 @@
 {
     "configurations": [
         {
+            "name": "fprime-teensy41",
+            "compileCommands": "${workspaceFolder}/build-fprime-automatic-teensy41/compile_commands.json",
+            "compilerPath": "/home/luca_lanzi/.arduino15/packages/teensy/tools/teensy-compile/11.3.1/arm/bin/arm-none-eabi-g++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-arm"
+        },
+        {
             "name": "fprime-native",
             "compileCommands": "${workspaceFolder}/build-fprime-automatic-native/compile_commands.json",
             "compilerPath": "/usr/bin/c++",
