@@ -413,9 +413,11 @@ own post-link hook, which runs the Teensy board package's bundled
 **Teensyduino Loader** GUI application should auto-launch, pre-loaded with
 the just-built `.hex` from
 `build-artifacts/teensy41/FprimeArduinoBilleeScm_billee_deployment/bin/`. If
-it doesn't appear, open it manually and point it at that file. Flashing
-itself requires a **physical press of the reset button on the board** —
-Teensy 4.1 doesn't reboot into the bootloader from software alone.
+it doesn't appear, open it manually and point it at that file. With the GUI
+loader, flashing needs a **physical press of the Program button** (the Teensy
+4.1's only pushbutton). On a headless host such as the Jetson, use
+`make flash` instead (next section), which needs no button while the board's
+USB is alive.
 
 **Linux only**: copy fprime-arduino's udev rule so your user can access the
 board without root:
@@ -430,6 +432,65 @@ sudo udevadm control --reload-rules
 See fprime-arduino's
 [`docs/uploading/teensy.md`](https://github.com/fprime-community/fprime-arduino/blob/main/docs/uploading/teensy.md)
 for the canonical version of the flashing instructions above.
+
+### Headless flashing: `make flash`
+
+`make flash` builds, then runs `teensy_loader_cli -s`
+(`cmake/teensy_flash_target.cmake`): it soft-reboots the running board into
+the bootloader, flashes the `.hex`, and boots it — no GUI and no button. The
+first write after the reboot often fails with `error writing to Teensy`;
+`cmake/teensy_flash_retry.sh` retries automatically, so that line in the log
+is normal. The `(hint: press the reset button)` line it prints while waiting
+for the bootloader is boilerplate, not a request.
+
+It only works while the board's USB is answering (or the board is already in
+the bootloader).
+
+### If the board stops responding
+
+- **A failed `FW_ASSERT` reboots the board into the Teensy bootloader.**
+  `Main.cpp` registers an assert hook (`RebootToBootloaderAssertHook`) that
+  calls `_reboot_Teensyduino_()`, so the board shows up as USB `16c0:0478`
+  (HalfKay) and `make flash` reaches it without a button. Without the hook the
+  default `abort()` is a silent `while (1)`. The passive rate group runs from
+  the rate driver's timer interrupt, so an assert raised there hangs inside
+  an interrupt, the USB core stops answering, the soft reboot times out and
+  the host cannot even enumerate the board.
+- **If it hangs some other way** (`make flash` prints
+  `Unable to soft reboot ... Connection timed out`, or the kernel logs
+  `device descriptor read/64, error -110`), only the **Program button** or
+  unplugging and replugging the USB cable recovers it. Power-cycling the port
+  from the host does not work on the Jetson's hub (it cannot switch VBUS).
+
+---
+
+## Runtime constraints (read before changing `instances.fpp` or the wiring)
+
+**Task priorities must be non-increasing in alphabetical start order.**
+Active components are started in alphabetical order (`cmdDisp`,
+`eventLogger`, `pumpManager`, `roboclaw1Manager`, `roboclaw2Manager`,
+`tlmSend`, `uvManager`). `Os::Baremetal::TaskRunner::addTask()` in
+`lib/fprime-baremetal` has a bug: a task started with a *higher* priority
+than one started before it overwrites another task's table entry, and that
+task is then never run. Its queue (depth 3) overflows after three rate-group
+ticks (~300 ms), `FW_ASSERT(Os::Queue::FULL)` fires and, without the assert
+hook, the board silently stops. This is exactly what happened when
+`uvManager` was given priority 99 above `pumpManager` (96) and `tlmSend` (97).
+On this cooperative scheduler priority only orders the round-robin, so equal
+priorities are fine. The rule is repeated in a comment at the top of
+`billee_deployment/Top/instances.fpp`.
+
+**Queue depth.** Components default to a queue of 3. `RoboclawManager` uses
+`Default.ROBOCLAW_QUEUE_SIZE` (10) because its state-machine signals share the
+queue with `run` and the commands; an overflow is an `FW_ASSERT`.
+
+**Limit switches** (pins 6-9) must close to **GND** when tripped.
+`RoboclawManager` treats a `LOW` read as tripped and `setupTopology()` enables
+the Teensy's internal pull-up on those pins, so an open switch reads `HIGH`.
+
+**Roboclaw wiring**: `roboclaw1Manager` is address `0x80` on `Serial3`
+(pins 14 TX / 15 RX) and `roboclaw2Manager` is `0x81` on `Serial4`
+(pins 17 TX / 16 RX), 38400 baud.
 
 ---
 
