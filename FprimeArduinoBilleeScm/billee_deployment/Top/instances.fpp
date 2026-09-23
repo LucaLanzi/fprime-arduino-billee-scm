@@ -11,6 +11,17 @@ module billee_deployment {
 
   # ----------------------------------------------------------------------
   # Active component instances
+  #
+  # PRIORITY ORDERING (do not change without reading this): Os::Baremetal::TaskRunner::addTask()
+  # (lib/fprime-baremetal) appends each task at m_task_table[m_index] AND insertion-sorts it in,
+  # so if a task is started with a HIGHER priority than one started before it, the append
+  # overwrites a real task instead of the trailing duplicate and the lowest-priority task drops
+  # out of the table. It is then never dispatched, its (depth 3) queue fills after three
+  # rate-group ticks and Os::Queue::FULL trips an FW_ASSERT: a silent hang ~300 ms after boot.
+  # Tasks are started in (fixed) alphabetical order: cmdDisp, eventLogger, pumpManager,
+  # roboclaw1Manager, roboclaw2Manager, tlmSend, uvManager, so priorities below MUST be
+  # non-increasing in that order. On the cooperative TaskRunner priority only orders the
+  # round-robin, so equal priorities cost nothing.
   # ----------------------------------------------------------------------
 
   instance cmdDisp: Svc.CommandDispatcher base id 0x0100 \
@@ -31,12 +42,12 @@ module billee_deployment {
   instance pumpManager: billeeScm.PumpManager base id 0x4A00 \
     queue size Default.QUEUE_SIZE \
     stack size Default.STACK_SIZE \
-    priority 96
+    priority 97
 
   instance uvManager: billeeScm.UvManager base id 0x5000 \
     queue size Default.QUEUE_SIZE \
     stack size Default.STACK_SIZE \
-    priority 99
+    priority 97
 
   instance roboclaw1Manager: billeeScm.RoboclawManager base id 0x5100 \
     queue size Default.QUEUE_SIZE \
