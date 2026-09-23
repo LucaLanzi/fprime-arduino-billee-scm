@@ -1,2 +1,5 @@
 set(SOURCE_FILES "${CMAKE_CURRENT_LIST_DIR}/RoboClaw.cpp")
 register_fprime_module()
+if (TARGET RoboClaw)
+    target_include_directories(RoboClaw PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
+endif()
