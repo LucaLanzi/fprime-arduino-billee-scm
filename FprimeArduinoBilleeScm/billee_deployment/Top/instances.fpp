@@ -6,6 +6,9 @@ module billee_deployment {
 
   module Default {
     constant QUEUE_SIZE = 3
+    # RoboclawManager queues more than the others: besides `run` and the commands it also puts its own
+    # state-machine signals (tick, cmdRecv, success/fail) on this queue, and an overflow is an FW_ASSERT.
+    constant ROBOCLAW_QUEUE_SIZE = 10
     constant STACK_SIZE = 64 * 1024
   }
 
@@ -50,12 +53,12 @@ module billee_deployment {
     priority 97
 
   instance roboclaw1Manager: billeeScm.RoboclawManager base id 0x5100 \
-    queue size Default.QUEUE_SIZE \
+    queue size Default.ROBOCLAW_QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 97
 
   instance roboclaw2Manager: billeeScm.RoboclawManager base id 0x5900 \
-    queue size Default.QUEUE_SIZE \
+    queue size Default.ROBOCLAW_QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 97
 

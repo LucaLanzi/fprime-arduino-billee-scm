@@ -75,12 +75,19 @@ void setupTopology(const TopologyState& state) {
     limitSw2Gpio.open(7, Arduino::GpioDriver::IN);
     limitSw3Gpio.open(8, Arduino::GpioDriver::IN);
     limitSw4Gpio.open(9, Arduino::GpioDriver::IN);
+    // Each limit switch closes to GND when tripped and RoboclawManager treats LOW as "tripped".
+    // GpioDriver only offers plain INPUT (no pull-up), which would leave an open switch floating and
+    // able to read LOW at random and stop a motor, so enable the Teensy's internal pull-up on each pin.
+    pinMode(6, Arduino::DEF_INPUT_PULLUP);
+    pinMode(7, Arduino::DEF_INPUT_PULLUP);
+    pinMode(8, Arduino::DEF_INPUT_PULLUP);
+    pinMode(9, Arduino::DEF_INPUT_PULLUP);
 
     // Each instance gets its own physical serial line and its own Roboclaw device address
-    // (set per-device via Roboclaw's DIP switches / Motion Studio -- 0x80/0x81 below are
-    // placeholders, update to match each board's actual configured address). Serial3/Serial4
-    // are used (not Serial1/Serial2) because Serial1's default TX pin is pin 1, which
-    // pump1Gpio above already claims as a plain digital output.
+    // (set per-device via Roboclaw's DIP switches / Motion Studio): roboclaw1Manager is address
+    // 0x80 on Serial3 and roboclaw2Manager is 0x81 on Serial4. Serial3/Serial4 are used (not
+    // Serial1/Serial2) because Serial1's default TX pin is pin 1, which pump1Gpio above already
+    // claims as a plain digital output.
     roboclaw1Manager.configure(&Serial3, 0x80);
     roboclaw2Manager.configure(&Serial4, 0x81);
 
