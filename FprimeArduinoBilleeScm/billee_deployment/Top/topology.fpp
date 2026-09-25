@@ -29,6 +29,7 @@ module billee_deployment {
     instance limitSw2Gpio
     instance limitSw3Gpio
     instance limitSw4Gpio
+    instance pca9685Manager
     instance pump1Gpio
     instance pump2Gpio
     instance pump3Gpio
@@ -77,6 +78,7 @@ module billee_deployment {
       rateGroup1.RateGroupMemberOut[4] -> uvManager.run
       rateGroup1.RateGroupMemberOut[5] -> roboclaw1Manager.run
       rateGroup1.RateGroupMemberOut[6] -> roboclaw2Manager.run
+      rateGroup1.RateGroupMemberOut[7] -> pca9685Manager.run
     }
 
     connections FaultProtection {
