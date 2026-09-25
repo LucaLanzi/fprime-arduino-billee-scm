@@ -65,6 +65,10 @@ if [[ ! -c "${UART_DEVICE}" ]]; then
     exit 1
 fi
 
+# --disable-data-logging: GDS's DataLogger appends every telemetry item to channel.log (and all raw bytes to
+# recv.bin) with no rotation, flushed per item. On this always-on service that grew ~1 GB/day and filled the
+# Jetson's disk on 2026-09-24. The flag turns off the whole DataLogger (channel.log, recv.bin, sent.bin, event.log,
+# command.log); GDS's own process logs are unaffected. Drop the flag to get the data logs back while debugging.
 exec "${GDS_BIN}" \
   --no-app \
   --dictionary "${DICTIONARY_PATH}" \
@@ -74,4 +78,5 @@ exec "${GDS_BIN}" \
   --gui-addr 0.0.0.0 \
   --gui-port "${GDS_FLASK_PORT}" \
   --zmq-transport "${ZMQ_SERVER_IN}" "${ZMQ_SERVER_OUT}" \
+  --disable-data-logging \
   "$@"
