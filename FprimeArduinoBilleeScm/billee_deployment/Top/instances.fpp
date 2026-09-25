@@ -9,6 +9,9 @@ module billee_deployment {
     # RoboclawManager queues more than the others: besides `run` and the commands it also puts its own
     # state-machine signals (tick, cmdRecv, success/fail) on this queue, and an overflow is an FW_ASSERT.
     constant ROBOCLAW_QUEUE_SIZE = 10
+    # PCA9685Manager: `run` plus a burst of servo commands (e.g. a GDS sequence moving several servos back to
+    # back) share this queue, and an overflow is an FW_ASSERT.
+    constant PCA9685_QUEUE_SIZE = 10
     constant STACK_SIZE = 64 * 1024
   }
 
@@ -21,9 +24,9 @@ module billee_deployment {
   # overwrites a real task instead of the trailing duplicate and the lowest-priority task drops
   # out of the table. It is then never dispatched, its (depth 3) queue fills after three
   # rate-group ticks and Os::Queue::FULL trips an FW_ASSERT: a silent hang ~300 ms after boot.
-  # Tasks are started in (fixed) alphabetical order: cmdDisp, eventLogger, pumpManager,
-  # roboclaw1Manager, roboclaw2Manager, tlmSend, uvManager, so priorities below MUST be
-  # non-increasing in that order. On the cooperative TaskRunner priority only orders the
+  # Tasks are started in (fixed) alphabetical order: cmdDisp, eventLogger, pca9685Manager,
+  # pumpManager, roboclaw1Manager, roboclaw2Manager, tlmSend, uvManager, so priorities below
+  # MUST be non-increasing in that order. On the cooperative TaskRunner priority only orders the
   # round-robin, so equal priorities cost nothing.
   # ----------------------------------------------------------------------
 
@@ -39,6 +42,12 @@ module billee_deployment {
 
   instance tlmSend: Svc.TlmChan base id 0x0400 \
     queue size Default.QUEUE_SIZE \
+    stack size Default.STACK_SIZE \
+    priority 97
+
+  # Starts between eventLogger (98) and pumpManager (97) ('c' < 'u'), so its priority must be 97 or 98.
+  instance pca9685Manager: billeeScm.PCA9685Manager base id 0x5D00 \
+    queue size Default.PCA9685_QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 97
 

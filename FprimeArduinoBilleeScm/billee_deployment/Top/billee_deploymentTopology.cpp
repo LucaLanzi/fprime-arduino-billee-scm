@@ -91,6 +91,14 @@ void setupTopology(const TopologyState& state) {
     roboclaw1Manager.configure(&Serial3, 0x80);
     roboclaw2Manager.configure(&Serial4, 0x81);
 
+    // PCA9685 servo board on the Teensy's Wire bus (SDA pin 18, SCL pin 19). Wire, not Wire1: Wire1's pins
+    // (16/17) are Serial4's, which roboclaw2Manager uses above. 0 = the board's A5..A0 address pins (-> I2C
+    // address 0x40, the library adds the base itself). 100 kHz rather than the library's 400 kHz default: the
+    // bus pull-ups (breakout's 10k in parallel with the Teensy's internal ~22k) are too weak to guarantee
+    // 400 kHz rise times over jumper wires, and a servo frame is 20 ms so 100 kHz costs nothing.
+    // Power the board's logic VCC from the Teensy's 3.3 V (its pins are not 5 V tolerant).
+    pca9685Manager.configure(&Wire, 0, 100000);
+
     rateDriver.configure(1);
     rateDriver.start();
 }

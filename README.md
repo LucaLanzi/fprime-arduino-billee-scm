@@ -40,7 +40,9 @@ fprime-arduino-billee-scm/
 ├── lib/                          # git submodules (populated by `make setup`)
 │   ├── fprime/                   # the F´ framework            (pinned to v4.1.1 — see below)
 │   ├── fprime-arduino/           # the ArduinoFw platform + arduino-cli glue + Teensy support
-│   └── fprime-baremetal/         # no-OS scheduler / Os implementations (pinned — see below)
+│   ├── fprime-baremetal/         # no-OS scheduler / Os implementations (pinned — see below)
+│   ├── fprime-billee-scm/        # this project's own components (Pump/Uv/Roboclaw/PCA9685 managers) + Types/
+│   └── vendor-lib/               # vendored third-party Arduino libraries: RoboClaw, PCA9685 (tracked in this repo)
 └── fprime-venv/                  # Python venv + arduino-cli  (GIT-IGNORED, regenerated locally)
 ```
 ---
@@ -468,8 +470,8 @@ the bootloader).
 
 **Task priorities must be non-increasing in alphabetical start order.**
 Active components are started in alphabetical order (`cmdDisp`,
-`eventLogger`, `pumpManager`, `roboclaw1Manager`, `roboclaw2Manager`,
-`tlmSend`, `uvManager`). `Os::Baremetal::TaskRunner::addTask()` in
+`eventLogger`, `pca9685Manager`, `pumpManager`, `roboclaw1Manager`,
+`roboclaw2Manager`, `tlmSend`, `uvManager`). `Os::Baremetal::TaskRunner::addTask()` in
 `lib/fprime-baremetal` has a bug: a task started with a *higher* priority
 than one started before it overwrites another task's table entry, and that
 task is then never run. Its queue (depth 3) overflows after three rate-group
@@ -483,6 +485,17 @@ priorities are fine. The rule is repeated in a comment at the top of
 **Queue depth.** Components default to a queue of 3. `RoboclawManager` uses
 `Default.ROBOCLAW_QUEUE_SIZE` (10) because its state-machine signals share the
 queue with `run` and the commands; an overflow is an `FW_ASSERT`.
+`PCA9685Manager` uses `Default.PCA9685_QUEUE_SIZE` (10) so a burst of servo
+commands cannot overflow into one.
+
+**No heap allocation.** This deployment never calls
+`Os::Baremetal::OverrideNewDelete::registerMemAllocator()`, so the global
+`operator new`/`new[]` override's `FW_ASSERT(pAllocator != nullptr)` fires on
+the first plain `new` and halts the board. Vendor objects are built with
+placement new into static storage (`RoboclawManager`, `PCA9685Manager`), and
+anything in a vendored library that calls `new` cannot be used:
+`PCA9685_ServoEval` (every constructor does `new float[]`) is deliberately
+avoided, see the `PCA9685Manager` SDD.
 
 **Limit switches** (pins 6-9) must close to **GND** when tripped.
 `RoboclawManager` treats a `LOW` read as tripped and `setupTopology()` enables
@@ -491,6 +504,17 @@ the Teensy's internal pull-up on those pins, so an open switch reads `HIGH`.
 **Roboclaw wiring**: `roboclaw1Manager` is address `0x80` on `Serial3`
 (pins 14 TX / 15 RX) and `roboclaw2Manager` is `0x81` on `Serial4`
 (pins 17 TX / 16 RX), 38400 baud.
+
+**PCA9685 servo board**: `pca9685Manager` is on the Teensy's `Wire` bus (SDA
+pin 18 / SCL pin 19), board address pins A5..A0 = 0 (I2C address 0x40), at
+**100 kHz**. `Wire1` is not usable because its pins (16/17) are `Serial4`'s.
+Power the breakout's **logic VCC from the Teensy's 3.3 V**: Teensy 4.1 pins
+are not 5 V tolerant and the breakout's pull-ups go to its logic VCC. Servo
+power is the separate V+ rail, with grounds tied. The bus pull-ups are the
+breakout's 10 kΩ in parallel with the Teensy's internal ~22 kΩ, which is why
+the bus runs at 100 kHz, not 400 kHz. The OE pin is not wired, so the only
+software stop is the `releaseAll` command. Per-channel servo type and pulse
+limits are a compile-time table in `PCA9685Manager.cpp`.
 
 ---
 
