@@ -497,6 +497,36 @@ anything in a vendored library that calls `new` cannot be used:
 `PCA9685_ServoEval` (every constructor does `new float[]`) is deliberately
 avoided, see the `PCA9685Manager` SDD.
 
+**Fixed-size tables.** Two tables in `billee_deployment/config/` are sized by
+hand, and going over either is an `FW_ASSERT` at boot:
+
+| Table | Setting | Must be |
+|---|---|---|
+| Command dispatch table | `CMD_DISPATCHER_DISPATCH_TABLE_SIZE` (`CommandDispatcherImplCfg.hpp`) | ≥ number of commands in the deployment (asserts inside `regCommands()` during `setupTopology()`) |
+| TlmChan | `TLMCHAN_NUM_TLM_HASH_SLOTS` / `TLMCHAN_HASH_BUCKETS` (`TlmChanImplCfg.hpp`) | buckets ≥ number of telemetry channels (asserts on the first tick that writes one too many) |
+
+Adding a component adds commands and channels, so re-check both. Count them
+from the dictionary the build produces:
+
+```bash
+python3 - build-artifacts/teensy41/*/dict/*.json <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+print("commands", len(d["commands"]), " telemetry channels", len(d["telemetryChannels"]))
+EOF
+```
+
+**Symptom if you get it wrong:** the build succeeds and `make flash` succeeds,
+but the board never runs. The assert hook in `Main.cpp` reboots it straight
+into the Teensy bootloader, so it enumerates as `16c0:0478` (HalfKay, a HID
+device) instead of a serial port, `/dev/ttyBILLEE_SCM` never appears, and the
+GDS service loops forever waiting for it. `make flash` still reaches the board
+(no button needed), so fix the table and reflash. This happened when
+PCA9685Manager took the command count from 23 to 29 against a table of 24.
+Current values: 40 commands (29 used), 12 slots + 64 buckets (50 channels).
+TlmChan costs about 520 bytes per entry, two copies of each (12 + 64 entries is
+about 79 KB of RAM1), so check the `teensy_size` RAM1 line after changing it.
+
 **Limit switches** (pins 6-9) must close to **GND** when tripped.
 `RoboclawManager` treats a `LOW` read as tripped and `setupTopology()` enables
 the Teensy's internal pull-up on those pins, so an open switch reads `HIGH`.

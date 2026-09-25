@@ -41,12 +41,17 @@
 
 namespace {
 
+    // TlmChan asserts (FW_ASSERT in TlmChan.cpp) when more distinct channels have been written than there are
+    // slots + buckets, so TLMCHAN_HASH_BUCKETS must stay >= the number of telemetry channels in the deployment
+    // (count them in the dictionary JSON: see README "Fixed-size tables"; 50 as of PCA9685Manager). It was 18, which
+    // only worked while many channels (e.g. systemResources') were never written. RAM: TlmChan holds
+    // 2 x (slots + buckets) entries of ~520 bytes, i.e. ~79 KB at 12 + 64.
     enum {
-        TLMCHAN_NUM_TLM_HASH_SLOTS = 5, // !< Number of slots in the hash table.
+        TLMCHAN_NUM_TLM_HASH_SLOTS = 12, // !< Number of slots in the hash table.
                                         // Works best when set to about twice the number of components producing telemetry
         TLMCHAN_HASH_MOD_VALUE = 99,    // !< The modulo value of the hashing function.
                                         // Should be set to a little below the ID gaps to spread the entries around
-        TLMCHAN_HASH_BUCKETS = 18       // !< Buckets assignable to a hash slot.
+        TLMCHAN_HASH_BUCKETS = 64       // !< Buckets assignable to a hash slot.
                                         // Buckets must be >= number of telemetry channels in system
     };
 
