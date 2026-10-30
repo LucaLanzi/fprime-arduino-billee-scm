@@ -543,8 +543,18 @@ are not 5 V tolerant and the breakout's pull-ups go to its logic VCC. Servo
 power is the separate V+ rail, with grounds tied. The bus pull-ups are the
 breakout's 10 kΩ in parallel with the Teensy's internal ~22 kΩ, which is why
 the bus runs at 100 kHz, not 400 kHz. The OE pin is not wired, so the only
-software stop is the `releaseAll` command. Per-channel servo type and pulse
-limits are a compile-time table in `PCA9685Manager.cpp`.
+software stop is the `hardStop` command. Per-channel pulse limits (and a
+`reversed` flag) are a compile-time table in `PCA9685Manager.cpp`.
+
+**Motor commanding**: every motor is driven the same way, with one command that
+selects the motor and gives it a PWM magnitude and a direction:
+`pca9685Manager.setServo(servo, pwm, direction)` and
+`roboclawNManager.setMotor(motor, pwm, direction)`. `pwm` is always 0-1000
+(0.0-100.0% of that motor's calibrated full scale in that direction) and
+`direction` is `FORWARD`, `REVERSE` or `STOPPED`. Each manager also has a
+`hardStop` command: for the PCA9685 it releases every channel, and for a
+Roboclaw it stops both motors in one packet and cancels any `setMotor` still in
+flight.
 
 ---
 
