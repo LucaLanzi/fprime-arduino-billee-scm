@@ -1,5 +1,7 @@
 PROJECT_ROOT     := $(CURDIR)
-PYTHON           ?= python3
+# fprime v4.3.0's pinned deps (e.g. pyzmq==26.2.0) ship no wheels for Python 3.14,
+# and building them from source fails, so prefer an older interpreter when present.
+PYTHON           ?= $(shell command -v python3.12 || command -v python3.13 || echo python3)
 VENV             := $(PROJECT_ROOT)/fprime-venv
 VENV_PYTHON      := $(VENV)/bin/python
 VENV_PIP         := $(VENV)/bin/pip
@@ -34,6 +36,7 @@ help: ## Show available commands
 	@echo "Then (once a deployment exists):  make generate && make build && make flash"
 
 setup: ## Create fprime-venv, init submodules, install Python deps into the venv
+	sudo apt install -y libxml2-dev libxslt1-dev zlib1g-dev python3-dev build-essential
 	$(PYTHON) -m venv fprime-venv
 	git submodule update --init --recursive
 	$(VENV_PIP) install --upgrade pip setuptools wheel
