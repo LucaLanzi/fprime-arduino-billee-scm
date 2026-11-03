@@ -12,6 +12,7 @@
 
 // Necessary project-specified types
 #include <Arduino/config/FprimeArduino.hpp>
+#include <billee_deployment/Top/SciencePins.hpp>
 
 // Allows easy reference to objects in FPP/autocoder required namespaces
 using namespace billee_deployment;
@@ -61,38 +62,53 @@ void setupTopology(const TopologyState& state) {
 
     comDriver.configure(&Serial);
 
-    pump1Gpio.open(1, Arduino::GpioDriver::OUT);
-    pump2Gpio.open(2, Arduino::GpioDriver::OUT);
-    pump3Gpio.open(3, Arduino::GpioDriver::OUT);
-    pump4Gpio.open(4, Arduino::GpioDriver::OUT);
+    // Relays, pins per SciencePins.hpp. Every relay is driven LOW (load off) right away so nothing switches on
+    // during boot; the managers then re-drive their pins from their (all-off) state every rate-group tick.
+    pump1Gpio.open(SciencePins::PUMP1, Arduino::GpioDriver::OUT);
+    pump2Gpio.open(SciencePins::PUMP2, Arduino::GpioDriver::OUT);
+    pump3Gpio.open(SciencePins::PUMP3, Arduino::GpioDriver::OUT);
+    pump4Gpio.open(SciencePins::PUMP4, Arduino::GpioDriver::OUT);
+    uvGpio.open(SciencePins::UV_LIGHT, Arduino::GpioDriver::OUT);
+    stirrer1Gpio.open(SciencePins::STIRRER1, Arduino::GpioDriver::OUT);
+    stirrer2Gpio.open(SciencePins::STIRRER2, Arduino::GpioDriver::OUT);
 
-    uvGpio.open(5, Arduino::GpioDriver::OUT);
+    Arduino::GpioDriver* const relays[] = {&pump1Gpio, &pump2Gpio,    &pump3Gpio,   &pump4Gpio,
+                                           &uvGpio,    &stirrer1Gpio, &stirrer2Gpio};
+    for (Arduino::GpioDriver* const relay : relays) {
+        relay->get_gpioWrite_InputPort(0)->invoke(Fw::Logic::LOW);
+    }
 
-    // Auto set to off when booting up
-    uvGpio.get_gpioWrite_InputPort(0)->invoke(Fw::Logic::LOW);
-
-    limitSw1Gpio.open(6, Arduino::GpioDriver::IN);
-    limitSw2Gpio.open(7, Arduino::GpioDriver::IN);
-    limitSw3Gpio.open(8, Arduino::GpioDriver::IN);
-    limitSw4Gpio.open(9, Arduino::GpioDriver::IN);
-    // Each limit switch closes to GND when tripped and RoboclawManager treats LOW as "tripped".
-    // GpioDriver only offers plain INPUT (no pull-up), which would leave an open switch floating and
-    // able to read LOW at random and stop a motor, so enable the Teensy's internal pull-up on each pin.
-    pinMode(6, Arduino::DEF_INPUT_PULLUP);
-    pinMode(7, Arduino::DEF_INPUT_PULLUP);
-    pinMode(8, Arduino::DEF_INPUT_PULLUP);
-    pinMode(9, Arduino::DEF_INPUT_PULLUP);
+    // Limit switches, pins per SciencePins.hpp. Each closes to GND when tripped and RoboclawManager treats
+    // LOW as "tripped". GpioDriver only offers plain INPUT (no pull-up), which would leave an open switch
+    // floating and able to read LOW at random and stop a motor, so enable the Teensy's internal pull-up on each pin.
+    struct LimitSwitch {
+        Arduino::GpioDriver& gpio;
+        U8 pin;
+    };
+    const LimitSwitch limitSwitches[] = {
+        {soilLowerLimitGpio, SciencePins::SOIL_LOWER_LIMIT},
+        {soilUpperLimitGpio, SciencePins::SOIL_UPPER_LIMIT},
+        {drillAsmLowerLimitGpio, SciencePins::DRILL_ASM_LOWER_LIMIT},
+        {drillAsmUpperLimitGpio, SciencePins::DRILL_ASM_UPPER_LIMIT},
+        {drillTubeLowerLimitGpio, SciencePins::DRILL_TUBE_LOWER_LIMIT},
+        {drillTubeUpperLimitGpio, SciencePins::DRILL_TUBE_UPPER_LIMIT},
+    };
+    for (const LimitSwitch& limitSwitch : limitSwitches) {
+        limitSwitch.gpio.open(limitSwitch.pin, Arduino::GpioDriver::IN);
+        pinMode(limitSwitch.pin, Arduino::DEF_INPUT_PULLUP);
+    }
 
     // Each instance gets its own physical serial line and its own Roboclaw device address
-    // (set per-device via Roboclaw's DIP switches / Motion Studio): roboclaw1Manager is address
-    // 0x80 on Serial3 and roboclaw2Manager is 0x81 on Serial4. Serial3/Serial4 are used (not
-    // Serial1/Serial2) because Serial1's default TX pin is pin 1, which pump1Gpio above already
-    // claims as a plain digital output.
-    roboclaw1Manager.configure(&Serial3, 0x80);
-    roboclaw2Manager.configure(&Serial4, 0x81);
+    // (set per-device via Roboclaw's DIP switches / Motion Studio): roboclaw1Manager is 0x80 on Serial1
+    // (RX 0 / TX 1), roboclaw2Manager is 0x81 on Serial2 (RX 7 / TX 8) and roboclaw3Manager (linear
+    // actuator) is 0x82 on Serial4 (RX 16 / TX 17). Serial3, Serial5 and Serial8 are not usable: their
+    // pins are limit switch inputs (14/15, 21) and stirrer relays (34/35), see SciencePins.hpp.
+    roboclaw1Manager.configure(&Serial1, 0x80);
+    roboclaw2Manager.configure(&Serial2, 0x81);
+    roboclaw3Manager.configure(&Serial4, 0x82);
 
     // PCA9685 servo board on the Teensy's Wire bus (SDA pin 18, SCL pin 19). Wire, not Wire1: Wire1's pins
-    // (16/17) are Serial4's, which roboclaw2Manager uses above. 0 = the board's A5..A0 address pins (-> I2C
+    // (16/17) are Serial4's, which roboclaw3Manager uses above. 0 = the board's A5..A0 address pins (-> I2C
     // address 0x40, the library adds the base itself). 100 kHz rather than the library's 400 kHz default: the
     // bus pull-ups (breakout's 10k in parallel with the Teensy's internal ~22k) are too weak to guarantee
     // 400 kHz rise times over jumper wires, and a servo frame is 20 ms so 100 kHz costs nothing.

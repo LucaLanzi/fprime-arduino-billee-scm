@@ -25,7 +25,8 @@ module billee_deployment {
   # out of the table. It is then never dispatched, its (depth 3) queue fills after three
   # rate-group ticks and Os::Queue::FULL trips an FW_ASSERT: a silent hang ~300 ms after boot.
   # Tasks are started in (fixed) alphabetical order: cmdDisp, eventLogger, pca9685Manager,
-  # pumpManager, roboclaw1Manager, roboclaw2Manager, tlmSend, uvManager, so priorities below
+  # pumpManager, roboclaw1Manager, roboclaw2Manager, roboclaw3Manager, stirrerManager, tlmSend,
+  # uvManager, so priorities below
   # MUST be non-increasing in that order. On the cooperative TaskRunner priority only orders the
   # round-robin, so equal priorities cost nothing.
   # ----------------------------------------------------------------------
@@ -71,6 +72,17 @@ module billee_deployment {
     stack size Default.STACK_SIZE \
     priority 97
 
+  @ Sample-cache linear actuator (Motor1 only)
+  instance roboclaw3Manager: billeeScm.RoboclawManager base id 0x5E00 \
+    queue size Default.ROBOCLAW_QUEUE_SIZE \
+    stack size Default.STACK_SIZE \
+    priority 97
+
+  instance stirrerManager: billeeScm.StirrerManager base id 0x5F00 \
+    queue size Default.QUEUE_SIZE \
+    stack size Default.STACK_SIZE \
+    priority 97
+
 
 
   # ----------------------------------------------------------------------
@@ -108,12 +120,20 @@ module billee_deployment {
 
   instance uvGpio: Arduino.GpioDriver base id 0x5A00
 
-  instance limitSw1Gpio: Arduino.GpioDriver base id 0x5200  @< roboclaw1Manager, Motor1
+  instance stirrer1Gpio: Arduino.GpioDriver base id 0x6000
 
-  instance limitSw2Gpio: Arduino.GpioDriver base id 0x5300  @< roboclaw1Manager, Motor2
+  instance stirrer2Gpio: Arduino.GpioDriver base id 0x6100
 
-  instance limitSw3Gpio: Arduino.GpioDriver base id 0x5B00  @< roboclaw2Manager, Motor1
+  instance soilLowerLimitGpio: Arduino.GpioDriver base id 0x5200  @< roboclaw1Manager, Motor1
 
-  instance limitSw4Gpio: Arduino.GpioDriver base id 0x5C00  @< roboclaw2Manager, Motor2
+  instance soilUpperLimitGpio: Arduino.GpioDriver base id 0x5300  @< roboclaw1Manager, Motor1
+
+  instance drillAsmLowerLimitGpio: Arduino.GpioDriver base id 0x5B00  @< roboclaw1Manager, Motor2
+
+  instance drillAsmUpperLimitGpio: Arduino.GpioDriver base id 0x5C00  @< roboclaw1Manager, Motor2
+
+  instance drillTubeLowerLimitGpio: Arduino.GpioDriver base id 0x5400  @< roboclaw2Manager, Motor1
+
+  instance drillTubeUpperLimitGpio: Arduino.GpioDriver base id 0x5500  @< roboclaw2Manager, Motor1
 
 }

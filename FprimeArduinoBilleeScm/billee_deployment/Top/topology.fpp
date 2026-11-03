@@ -25,10 +25,10 @@ module billee_deployment {
     instance comDriver
     instance eventLogger
     instance fatalHandler
-    instance limitSw1Gpio
-    instance limitSw2Gpio
-    instance limitSw3Gpio
-    instance limitSw4Gpio
+    instance drillAsmLowerLimitGpio
+    instance drillAsmUpperLimitGpio
+    instance drillTubeLowerLimitGpio
+    instance drillTubeUpperLimitGpio
     instance pca9685Manager
     instance pump1Gpio
     instance pump2Gpio
@@ -37,6 +37,12 @@ module billee_deployment {
     instance pumpManager
     instance roboclaw1Manager
     instance roboclaw2Manager
+    instance roboclaw3Manager
+    instance soilLowerLimitGpio
+    instance soilUpperLimitGpio
+    instance stirrer1Gpio
+    instance stirrer2Gpio
+    instance stirrerManager
     instance uvGpio
     instance uvManager
     instance rateDriver
@@ -79,6 +85,8 @@ module billee_deployment {
       rateGroup1.RateGroupMemberOut[5] -> roboclaw1Manager.run
       rateGroup1.RateGroupMemberOut[6] -> roboclaw2Manager.run
       rateGroup1.RateGroupMemberOut[7] -> pca9685Manager.run
+      rateGroup1.RateGroupMemberOut[8] -> roboclaw3Manager.run
+      rateGroup1.RateGroupMemberOut[9] -> stirrerManager.run
     }
 
     connections FaultProtection {
@@ -116,10 +124,17 @@ module billee_deployment {
 
       uvManager.uvSet -> uvGpio.gpioWrite
 
-      roboclaw1Manager.limitSwGet[0] -> limitSw1Gpio.gpioRead
-      roboclaw1Manager.limitSwGet[1] -> limitSw2Gpio.gpioRead
-      roboclaw2Manager.limitSwGet[0] -> limitSw3Gpio.gpioRead
-      roboclaw2Manager.limitSwGet[1] -> limitSw4Gpio.gpioRead
+      stirrerManager.stirrer1Set -> stirrer1Gpio.gpioWrite
+      stirrerManager.stirrer2Set -> stirrer2Gpio.gpioWrite
+
+      # Interim: RoboclawManager reads one switch per motor and blocks both directions while it is tripped,
+      # so only each motor's lower switch is wired. The upper switches (soilUpperLimitGpio,
+      # drillAsmUpperLimitGpio, drillTubeUpperLimitGpio) are opened but unread until a direction-aware
+      # limit switch manager pairs them. Roboclaw 2 Motor2 (drill spin) and Roboclaw 3 have no switches,
+      # so their limitSwGet ports stay unconnected.
+      roboclaw1Manager.limitSwGet[0] -> soilLowerLimitGpio.gpioRead
+      roboclaw1Manager.limitSwGet[1] -> drillAsmLowerLimitGpio.gpioRead
+      roboclaw2Manager.limitSwGet[0] -> drillTubeLowerLimitGpio.gpioRead
     }
 
   }

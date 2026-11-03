@@ -523,16 +523,26 @@ device) instead of a serial port, `/dev/ttyBILLEE_SCM` never appears, and the
 GDS service loops forever waiting for it. `make flash` still reaches the board
 (no button needed), so fix the table and reflash. This happened when
 PCA9685Manager took the command count from 23 to 29 against a table of 24.
-Current values: 40 commands (29 used), 12 slots + 64 buckets (50 channels).
-TlmChan costs about 520 bytes per entry, two copies of each (12 + 64 entries is
-about 79 KB of RAM1), so check the `teensy_size` RAM1 line after changing it.
+Current values: 56 commands (~38 used), 12 slots + 72 buckets (~56 channels).
+TlmChan costs about 520 bytes per entry, two copies of each (12 + 72 entries is
+about 87 KB of RAM1), so check the `teensy_size` RAM1 line after changing it.
+Two port counts in `config/AcConstants.fpp` are also sized by hand (going over
+either is an FPP error at `make generate`, not a boot assert):
+`PassiveRateGroupOutputPorts` = 12 (10 used by `rateGroup1`) and
+`CmdDispatcherComponentCommandPorts` = 14 (11 components with commands).
 
-**Limit switches** (pins 6-9) must close to **GND** when tripped.
+**Pinout**: every pin is defined in `billee_deployment/Top/SciencePins.hpp`,
+matching the Science Hardware Architecture 2027 block diagram.
+
+**Limit switches** (pins 23/22 soil transport, 21/15 drill assembly, 14/41
+drill tube, lower/upper) must close to **GND** when tripped. Only the lower
+switches are read by `RoboclawManager` for now.
 `RoboclawManager` treats a `LOW` read as tripped and `setupTopology()` enables
 the Teensy's internal pull-up on those pins, so an open switch reads `HIGH`.
 
-**Roboclaw wiring**: `roboclaw1Manager` is address `0x80` on `Serial3`
-(pins 14 TX / 15 RX) and `roboclaw2Manager` is `0x81` on `Serial4`
+**Roboclaw wiring**: `roboclaw1Manager` is address `0x80` on `Serial1`
+(pins 1 TX / 0 RX), `roboclaw2Manager` is `0x81` on `Serial2` (pins 8 TX /
+7 RX) and `roboclaw3Manager` (linear actuator) is `0x82` on `Serial4`
 (pins 17 TX / 16 RX), 38400 baud.
 
 **PCA9685 servo board**: `pca9685Manager` is on the Teensy's `Wire` bus (SDA
