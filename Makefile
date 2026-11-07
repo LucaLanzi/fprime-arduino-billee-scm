@@ -1,7 +1,10 @@
 PROJECT_ROOT     := $(CURDIR)
 # fprime v4.3.0's pinned deps (e.g. pyzmq==26.2.0) ship no wheels for Python 3.14,
-# and building them from source fails, so prefer an older interpreter when present.
-PYTHON           ?= $(shell command -v python3.12 || command -v python3.13 || echo python3)
+# and building them from source fails, so use a 3.12/3.13 interpreter. If the system
+# has none (e.g. Ubuntu 26.04 only ships 3.14), `make setup` provisions 3.12 via uv.
+PYTHON           ?= $(shell command -v python3.12 || command -v python3.13)
+UV               := $(shell command -v uv || echo $(HOME)/.local/bin/uv)
+VENV_PY_VERSION  := 3.12
 VENV             := $(PROJECT_ROOT)/fprime-venv
 VENV_PYTHON      := $(VENV)/bin/python
 VENV_PIP         := $(VENV)/bin/pip
@@ -37,7 +40,20 @@ help: ## Show available commands
 
 setup: ## Create fprime-venv, init submodules, install Python deps into the venv
 	sudo apt install -y libxml2-dev libxslt1-dev zlib1g-dev python3-dev build-essential
-	$(PYTHON) -m venv fprime-venv
+	@if [ -x "$(VENV_PYTHON)" ] && ! "$(VENV_PYTHON)" -c 'import sys; sys.exit(sys.version_info[:2] not in [(3,12),(3,13)])'; then \
+		echo "[INFO] Existing fprime-venv uses $$($(VENV_PYTHON) --version) (unsupported) - recreating it"; \
+		rm -rf "$(VENV)"; \
+	fi
+	@if [ -x "$(VENV_PYTHON)" ]; then \
+		echo "[INFO] fprime-venv already exists ($$($(VENV_PYTHON) --version))"; \
+	elif [ -n "$(PYTHON)" ]; then \
+		$(PYTHON) -m venv "$(VENV)"; \
+	else \
+		echo "[INFO] No python3.12/3.13 on this system - provisioning Python $(VENV_PY_VERSION) via uv"; \
+		if [ ! -x "$(UV)" ]; then curl -LsSf https://astral.sh/uv/install.sh | sh; fi; \
+		"$(UV)" python install $(VENV_PY_VERSION) && \
+		"$(UV)" venv --seed --python $(VENV_PY_VERSION) "$(VENV)"; \
+	fi
 	git submodule update --init --recursive
 	$(VENV_PIP) install --upgrade pip setuptools wheel
 	$(VENV_PIP) install -r requirements.txt
@@ -90,10 +106,12 @@ setup-flash-tools: ## Install teensy_loader_cli + its udev rule for headless fla
 generate: ## Run fprime-util generate for the Arduino target (needs a deployment)
 	$(VENV_FPRIME_UTIL) generate $(TOOLCHAIN)
 
-build: ## Build the Arduino target (needs a deployment)
+build: ## Build the Arduino target (auto-runs generate if needed)
+	@test -d build-fprime-automatic-$(TOOLCHAIN) || $(VENV_FPRIME_UTIL) generate $(TOOLCHAIN)
 	$(VENV_FPRIME_UTIL) build $(TOOLCHAIN)
 
 flash: ## Build the Arduino target and flash it onto the connected Teensy (needs teensy_loader_cli, see setup-flash-tools)
+	@test -d build-fprime-automatic-$(TOOLCHAIN) || $(VENV_FPRIME_UTIL) generate $(TOOLCHAIN)
 	$(VENV_FPRIME_UTIL) build $(TOOLCHAIN) --target flash-$(TOOLCHAIN)
 
 clean: ## Purge F´ build caches and build artifacts
