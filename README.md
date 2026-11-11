@@ -41,7 +41,7 @@ fprime-arduino-billee-scm/
 │   ├── fprime/                   # the F´ framework            (pinned to v4.1.1 — see below)
 │   ├── fprime-arduino/           # the ArduinoFw platform + arduino-cli glue + Teensy support
 │   ├── fprime-baremetal/         # no-OS scheduler / Os implementations (pinned — see below)
-│   ├── fprime-billee-scm/        # this project's own components (Pump/Uv/Roboclaw/PCA9685 managers) + Types/
+│   ├── fprime-billee-scm/        # this project's own components (Relay/Roboclaw/PCA9685/LoadCell/Stepper managers, BootReporter) + Types/
 │   └── vendor-lib/               # vendored third-party Arduino libraries: RoboClaw, PCA9685 (tracked in this repo)
 └── fprime-venv/                  # Python venv + arduino-cli  (GIT-IGNORED, regenerated locally)
 ```
@@ -468,6 +468,13 @@ the bootloader).
   the rate driver's timer interrupt, so an assert raised there hangs inside
   an interrupt, the USB core stops answering, the soft reboot times out and
   the host cannot even enumerate the board.
+- **Find out where it asserted.** The same hook stores the assert's file,
+  line and arguments in RAM2, which survives the reboot. After reflashing,
+  `bootReporter` reports them: telemetry `bootReporter.lastAssertFile` /
+  `lastAssertLine` from the first tick, and a `PreviousBootAsserted` event
+  15 s after boot (or on `bootReporter.BOOT_REPORT`). Hard faults come out as
+  `PreviousBootFaulted` (Teensy's CrashReport). The record is lost only if the
+  board loses power before the next boot.
 - **If it hangs some other way** (`make flash` prints
   `Unable to soft reboot ... Connection timed out`, or the kernel logs
   `device descriptor read/64, error -110`), only the **Program button** or
@@ -476,12 +483,115 @@ the bootloader).
 
 ---
 
+## Commanding the Science Control Module
+
+One component per kind of hardware in the Science Hardware Architecture 2027
+diagram. Each component's `docs/sdd.md` (in `lib/fprime-billee-scm/Components/`)
+has the details.
+
+| Component | Hardware | Commands |
+|---|---|---|
+| `relayManager` | Relays: `PUMP1`-`PUMP4` (39/38/37/36), `UV_LIGHT` (40), `STIRRER` (34) | `SET relay ON\|OFF`, `ON_FOR relay ms`, `ALL_OFF` |
+| `pca9685Manager` | Servos `S1`-`S16` on the PCA9685 (S1 cup tilt, S2 drape, S3 cache lid, S4 funnel flap) | `SERVO_SET servo dir speed%`, `SERVO_OFF servo`, `SERVO_PULSE servo counts`, `STOP_ALL`, `REINIT` |
+| `roboclawManager` | Roboclaws `R1`-`R3`, motors `R1_M1`, `R1_M2`, `R2_M1`, `R2_M2` (drill), `R3_M1` (linear actuator), each with lower/upper limit switches | `MOVE motor dir speed%`, `RUN_FOR motor dir speed% ms`, `TO_LIMIT motor dir speed% timeoutMs`, `STOP motor`, `STOP_ALL`, `RESET_ENCODERS board` |
+| `loadCellManager` | HX711 weight sensors `CELL1`, `CELL2` | `TARE cell n`, `CALIBRATE cell grams n`, `SET_SCALE cell countsPerGram`, `WAIT_MASS cell ABOVE\|BELOW grams timeoutMs` |
+| `stepperManager` | Carousel stepper | `MOVE_STEPS dir steps speedHz`, `MOVE_TO position speedHz`, `STOP`, `HOLD ON\|OFF`, `ZERO` |
+| `cmdSeq` | Sequencer | `CS_VALIDATE file`, `CS_RUN file BLOCK\|NO_BLOCK`, `CS_CANCEL`, ... |
+| `fileManager` | SD card | `CreateDirectory`, `RemoveFile`, `FileSize`, `MoveFile`, ... (not `ListDirectory`, see below) |
+| `bootReporter` | Boot diagnostics, SD mount | `BOOT_REPORT`, `SD_MOUNT` |
+
+Conventions shared by all of them:
+
+- **Direction** is `FORWARD` / `REVERSE` / `STOPPED`. For a Roboclaw motor
+  `FORWARD` always moves toward its **upper** limit switch; a motor wired the
+  other way is fixed with `roboclawManager.configureMotor(motor, true)` in
+  `billee_deploymentTopology.cpp`.
+- **Speed** is 0-100 (% duty for motors, % of calibrated travel/speed for
+  servos). The stepper takes steps per second.
+- **Commands that wait on hardware are answered when they finish**: `ON_FOR`
+  when the relay switches off, `RUN_FOR` when the time is up, `TO_LIMIT` when
+  the switch trips, `MOVE_STEPS`/`MOVE_TO` on arrival, `TARE`/`CALIBRATE` when
+  averaged, `WAIT_MASS` when the threshold is met. A timeout, a limit switch
+  stopping a timed run, or a newer command on the same device answers
+  `EXECUTION_ERROR`, which stops a running sequence.
+- **A motor moving toward a tripped limit switch is stopped within one tick**
+  (20 ms, `roboclawManager` runs at 50 Hz), whatever command started it.
+- **Stop everything**: `relayManager.ALL_OFF`, `roboclawManager.STOP_ALL`,
+  `pca9685Manager.STOP_ALL`, `stepperManager.STOP`, and `cmdSeq.CS_CANCEL` for
+  a running sequence.
+- **Load-cell tare and scale live in RAM.** Tare from the GDS before a run;
+  restore a recorded `CALIBRATE` factor with `SET_SCALE` (or at the top of a
+  sequence).
+
+### Sequences
+
+The sequencer waits for each command's answer, then for the command's relative
+time (`R hh:mm:ss`), then sends the next. Because hardware commands answer
+when they finish, a sequence reads as a script:
+
+```
+; Lower the drill tube to its limit, dose 3 s of pump 1, wait for 50 g on cell 1
+R00:00:00 billee_deployment.roboclawManager.TO_LIMIT R2_M1 REVERSE 30 20000
+R00:00:00 billee_deployment.relayManager.ON_FOR PUMP1 3000
+R00:00:00 billee_deployment.relayManager.SET PUMP2 ON
+R00:00:00 billee_deployment.loadCellManager.WAIT_MASS CELL1 ABOVE 50 60000
+R00:00:00 billee_deployment.relayManager.SET PUMP2 OFF
+R00:00:02 billee_deployment.roboclawManager.TO_LIMIT R2_M1 FORWARD 30 20000
+```
+
+Workflow:
+
+1. Once per SD card: `fileManager.CreateDirectory /seq`.
+2. In the GDS **Sequence** tab, write the sequence and press **Uplink**: the
+   GDS compiles it and uplinks `/seq/<name>.bin` (the service runs with
+   `--remote-sequence-directory /seq`). Wait for `fileUplink.FileReceived`.
+3. `cmdSeq.CS_VALIDATE /seq/<name>.bin`, then
+   `cmdSeq.CS_RUN /seq/<name>.bin BLOCK` (`BLOCK` answers the run command when
+   the sequence ends).
+4. `fileManager.RemoveFile /seq/<name>.bin false` **before re-uploading a
+   changed sequence under the same name**: the SD file layer opens for writing
+   without truncating, so a shorter new file would keep the old file's tail and
+   fail `CS_VALIDATE`.
+
+Timing resolution is one 10 Hz tick (100 ms), e.g. two NO-OPs 3 s apart run
+3.1 s apart. `cmdSeq` fails any single command that goes unanswered for 600 s;
+the hardware commands' own limits (300 s) are shorter.
+
+**Do not use `fileManager.ListDirectory`.** fprime-arduino's SD directory code
+(`lib/fprime-arduino/Arduino/Os/Directory.cpp`, `read()`) never reports "no
+more files", so the listing never ends and emits an empty
+`DirectoryListingSubdir` event every tick until the board is rebooted. Use
+`FileSize` to check a file exists. (A one-line fix in that upstream file;
+deliberately not carried in this project for now.)
+
+**SD card**: the Teensy 4.1's own microSD socket, mounted at boot
+(`bootReporter.SdCardStatus`, telemetry `sdCardMounted`). Error code `0x17`
+means the card never initialized, which is also what an empty or unseated
+socket looks like; reseat it and run `bootReporter.SD_MOUNT`.
+
+### FPP gotchas met while building this
+
+- `state` is a reserved word in FPP (state machines): it cannot name a command
+  argument, an event argument or a telemetry channel (`error: identifier
+  expected` / `) expected`).
+- After adding a type or constant to an **existing** `.fpp` file, regenerate
+  (`fprime-util generate teensy41 -f`, or delete the build directory and run
+  `make build`). The build alone keeps a stale symbol index (`locs.fpp`) and
+  fails with `symbol ... is not defined`. Adding a new `.fpp` file to a
+  `CMakeLists.txt` regenerates on its own.
+- FPP constants are not C++ constants named the same way: in C++ use the size
+  of a generated array (`billeeScm::RelayStates::SIZE`) rather than
+  `RELAY_COUNT`.
+
+---
+
 ## Runtime constraints (read before changing `instances.fpp` or the wiring)
 
 **Task priorities must be non-increasing in alphabetical start order.**
-Active components are started in alphabetical order (`cmdDisp`,
-`eventLogger`, `pca9685Manager`, `pumpManager`, `roboclaw1Manager`,
-`roboclaw2Manager`, `tlmSend`, `uvManager`). `Os::Baremetal::TaskRunner::addTask()` in
+Active components are started in alphabetical order (`cmdDisp`, `cmdSeq`,
+`eventLogger`, `fileManager`, `fileUplink`, `loadCellManager`,
+`pca9685Manager`, `relayManager`, `roboclawManager`, `stepperManager`,
+`tlmSend`). `Os::Baremetal::TaskRunner::addTask()` in
 `lib/fprime-baremetal` has a bug: a task started with a *higher* priority
 than one started before it overwrites another task's table entry, and that
 task is then never run. Its queue (depth 3) overflows after three rate-group
@@ -492,20 +602,32 @@ On this cooperative scheduler priority only orders the round-robin, so equal
 priorities are fine. The rule is repeated in a comment at the top of
 `billee_deployment/Top/instances.fpp`.
 
-**Queue depth.** Components default to a queue of 3. `RoboclawManager` uses
-`Default.ROBOCLAW_QUEUE_SIZE` (10) because its state-machine signals share the
-queue with `run` and the commands; an overflow is an `FW_ASSERT`.
-`PCA9685Manager` uses `Default.PCA9685_QUEUE_SIZE` (10) so a burst of servo
-commands cannot overflow into one.
+**Queues and blocking.** The TaskRunner is cooperative: while one handler
+runs, nothing else does, but the rate-group interrupt keeps queuing ticks. An
+async port whose queue is full asserts unless its component declares it
+`drop`. So:
 
-**No heap allocation.** This deployment never calls
-`Os::Baremetal::OverrideNewDelete::registerMemAllocator()`, so the global
-`operator new`/`new[]` override's `FW_ASSERT(pAllocator != nullptr)` fires on
-the first plain `new` and halts the board. Vendor objects are built with
-placement new into static storage (`RoboclawManager`, `PCA9685Manager`), and
-anything in a vendored library that calls `new` cannot be used:
-`PCA9685_ServoEval` (every constructor does `new float[]`) is deliberately
-avoided, see the `PCA9685Manager` SDD.
+- Every project component's rate-group port is `async input port run:
+  Svc.Sched drop`. Do the same in any new component.
+- Framework components whose rate-group port asserts (`tlmSend.Run`,
+  `cmdSeq.schedIn`, `fileManager.schedIn`) get `Default.SCHED_QUEUE_SIZE`
+  (40 = 4 s of 10 Hz ticks). The longest legitimate block is `SD.begin()` with
+  no card (`bootReporter.SD_MOUNT`): SdFat's 2 s timeout. A new blocking call
+  longer than that needs a deeper queue.
+- `ComCcsds.comQueue` is 20 deep (`ComCcsdsConfig.fpp`): its `comStatusIn` port
+  asserts when full, and at the old depth of 3 any burst of events rebooted
+  the board.
+- Keep handlers short. A Roboclaw that does not answer costs 30 ms per call,
+  so `roboclawManager` makes at most one serial transaction per tick and
+  probes an offline board every 2 s.
+
+**Heap.** Plain `new` works: it is Teensy's `operator new`, which calls
+`malloc` on the RAM2 heap (fprime-baremetal's `OverrideNewDelete` is not
+linked into this build). Queues and the sequence buffer live there. The
+vendored-driver objects still use placement new into static storage so their
+memory is fixed at build time. (An earlier version of this README said the
+first `new` halts the board; that applied to a configuration that linked
+`OverrideNewDelete` without registering an allocator.)
 
 **Fixed-size tables.** These limits in `billee_deployment/config/` are sized
 by hand, and going over any of them is an `FW_ASSERT` on the board, not a
@@ -562,17 +684,18 @@ device) instead of a serial port, `/dev/ttyBILLEE_SCM` never appears, and the
 GDS service loops forever waiting for it. `make flash` still reaches the board
 (no button needed), so fix the table and reflash. This happened when
 PCA9685Manager took the command count from 23 to 29 against a table of 24.
-Current values: 56 commands (46 used), 12 slots + 72 buckets (61 channels),
-`FW_TLM_BUFFER_MAX_SIZE` 128 (largest channel: `pca9685Manager.servoStates`,
-96 bytes). Each TlmChan bucket holds one telemetry buffer of
+Current values: 64 commands (50 used), 12 slots + 72 buckets (58 channels),
+`FW_TLM_BUFFER_MAX_SIZE` 128 (largest channel: `roboclawManager.motorStates`,
+65 bytes). Each TlmChan bucket holds one telemetry buffer of
 `FW_TLM_BUFFER_MAX_SIZE` and TlmChan keeps two copies of every bucket, so
 `tlmSend` is about 28 KB of RAM1. It was about 83 KB when the buffer was the
 framework's default of 506 bytes. Check the `teensy_size` RAM1 line after
 changing either setting (see "RAM1 budget" below).
 Two port counts in `config/AcConstants.fpp` are also sized by hand (going over
 either is an FPP error at `make generate`, not a boot assert):
-`PassiveRateGroupOutputPorts` = 12 (11 used by `rateGroup1`) and
-`CmdDispatcherComponentCommandPorts` = 14 (11 components with commands).
+`PassiveRateGroupOutputPorts` = 16 (`rateGroup1` uses up to index 12,
+`rateGroup2` index 0) and `CmdDispatcherComponentCommandPorts` = 16 (12
+components with commands).
 
 **RAM1 budget.** Teensy 4.1 runs all code from RAM1 (ITCM), which the linker
 hands out in **32 KB blocks**. Whatever RAM1 the code doesn't take holds the
@@ -604,6 +727,15 @@ Check after every change that adds a component, a library or a channel:
   `Error program exceeds memory space`. Read the output.
 - The Jetson's build of the same commit comes out about 11 KB larger in code
   than a WSL build. Check the numbers from the machine that flashes.
+- **Cold code runs from flash.** `cmake/teensy_flash_code.cmake` links with a
+  copy of Teensy's linker script that puts the code and read-only data of the
+  libraries in its `TEENSY_FLASH_LIBRARIES` list (sequencer, file manager,
+  file uplink) in flash instead of RAM1. That took the Jetson build from 11
+  code blocks back to 9. It is the first lever when RAM1 runs short again:
+  add a library that is not timing critical to the list (`nm` then shows its
+  functions at `0x6xxxxxxx`). Keep interrupt handlers and the comm path in
+  RAM1.
+- Current Jetson build: code 295 KB (10 blocks), **49 KB** stack free.
 
 **Symptom if RAM1 overflows:** build and flash succeed, then nothing. The
 kernel log on the host shows the flash (`16c0:0478`), a disconnect, and no
@@ -612,39 +744,38 @@ reboot loop: the board faults during startup, before USB comes up, unlike an
 `FW_ASSERT`, which leaves it in the bootloader.
 
 **Pinout**: every pin is defined in `billee_deployment/Top/SciencePins.hpp`,
-matching the Science Hardware Architecture 2027 block diagram.
+matching the Science Hardware Architecture 2027 block diagram. The diagram
+does not assign the HX711 buses; they are on 24/25 and 26/27.
 
-**Limit switches** (pins 23/22 soil transport, 21/15 drill assembly, 14/41
-drill tube, lower/upper) must close to **GND** when tripped. Only the lower
-switches are read by `RoboclawManager` for now.
-`RoboclawManager` treats a `LOW` read as tripped and `setupTopology()` enables
-the Teensy's internal pull-up on those pins, so an open switch reads `HIGH`.
+**Limit switches** must close to **GND** when tripped. `setupTopology()`
+enables the Teensy's internal pull-up on each one, so an open switch reads
+`HIGH`. One lower/upper pair per Roboclaw motor: R1_M1 23/22, R1_M2 21/15,
+R2_M1 14/41, R3_M1 33/32 (R2_M2, the drill, has none).
 
-**Roboclaw wiring**: `roboclaw1Manager` is address `0x80` on `Serial1`
-(pins 1 TX / 0 RX), `roboclaw2Manager` is `0x81` on `Serial2` (pins 8 TX /
-7 RX) and `roboclaw3Manager` (linear actuator) is `0x82` on `Serial4`
-(pins 17 TX / 16 RX), 38400 baud.
+**Roboclaw wiring**: R1 is address `0x80` on `Serial1` (pins 1 TX / 0 RX),
+R2 is `0x81` on `Serial2` (pins 8 TX / 7 RX), R3 (linear actuator) is `0x82`
+on `Serial4` (pins 17 TX / 16 RX), 38400 baud, all driven by the one
+`roboclawManager`.
 
-**PCA9685 servo board**: `pca9685Manager` is on the Teensy's `Wire` bus (SDA
-pin 18 / SCL pin 19), board address pins A5..A0 = 0 (I2C address 0x40), at
-**100 kHz**. `Wire1` is not usable because its pins (16/17) are `Serial4`'s.
-Power the breakout's **logic VCC from the Teensy's 3.3 V**: Teensy 4.1 pins
-are not 5 V tolerant and the breakout's pull-ups go to its logic VCC. Servo
-power is the separate V+ rail, with grounds tied. The bus pull-ups are the
-breakout's 10 kΩ in parallel with the Teensy's internal ~22 kΩ, which is why
-the bus runs at 100 kHz, not 400 kHz. The OE pin is not wired, so the only
-software stop is the `hardStop` command. Per-channel pulse limits (and a
-`reversed` flag) are a compile-time table in `PCA9685Manager.cpp`.
+**PCA9685 servo board**: on the Teensy's `Wire` bus (SDA pin 18 / SCL pin 19),
+board address pins A5..A0 = 0 (I2C address 0x40), at **100 kHz**. `Wire1` is
+not usable because its pins (16/17) are `Serial4`'s. Power the breakout's
+**logic VCC from the Teensy's 3.3 V**: Teensy 4.1 pins are not 5 V tolerant and
+the breakout's pull-ups go to its logic VCC. Servo power is the separate V+
+rail, with grounds tied. The bus pull-ups are the breakout's 10 kΩ in parallel
+with the Teensy's internal ~22 kΩ, which is why the bus runs at 100 kHz. The
+OE pin is not wired, so the only software stop is `pca9685Manager.STOP_ALL`.
+Per-channel pulse limits (and a `reversed` flag) are a compile-time table in
+`PCA9685Manager.cpp`.
 
-**Motor commanding**: every motor is driven the same way, with one command that
-selects the motor and gives it a PWM magnitude and a direction:
-`pca9685Manager.setServo(servo, pwm, direction)` and
-`roboclawNManager.setMotor(motor, pwm, direction)`. `pwm` is always 0-1000
-(0.0-100.0% of that motor's calibrated full scale in that direction) and
-`direction` is `FORWARD`, `REVERSE` or `STOPPED`. Each manager also has a
-`hardStop` command: for the PCA9685 it releases every channel, and for a
-Roboclaw it stops both motors in one packet and cancels any `setMotor` still in
-flight.
+**Carousel stepper**: NEMA 17 with an integrated driver: PU- on 2, DR- on 3,
+MF- on 4 (5 spare), XCOM to +5 V. The pins are open-drain (`OUTPUT_OPENDRAIN`):
+LOW turns an input on, high-impedance turns it off, so an "off" input does not
+sit at the 1.7 V a 3.3 V HIGH would leave against 5 V. If the driver still
+sees phantom pulses, add a level shifter.
+
+**HX711 load cells**: DAT 24 / CLK 25 (CELL1) and DAT 26 / CLK 27 (CELL2).
+Power the HX711 boards from 3.3 V.
 
 ---
 

@@ -43,10 +43,10 @@ namespace {
 
     // TlmChan asserts (FW_ASSERT in TlmChan.cpp) when more distinct channels have been written than there are
     // slots + buckets, so TLMCHAN_HASH_BUCKETS must stay >= the number of telemetry channels in the deployment
-    // (count them in the dictionary JSON: see README "Fixed-size tables"; 50 as of PCA9685Manager, ~56 with
-    // roboclaw3Manager + stirrerManager). It was 18, which only worked while many channels (e.g. systemResources')
-    // were never written. RAM: TlmChan holds 2 x (slots + buckets) entries of ~520 bytes, i.e. ~87 KB at 12 + 72
-    // (each extra bucket costs ~1 KB, so keep the margin modest and check the teensy_size RAM1 line).
+    // (count them in the dictionary JSON: see README "Fixed-size tables"; 58 after the manager consolidation). It was
+    // 18, which only worked while many channels (e.g. systemResources') were never written. RAM: TlmChan holds
+    // 2 x (slots + buckets) entries of ~170 bytes (the 128-byte FW_TLM_BUFFER_MAX_SIZE buffer in FpConstants.fpp plus
+    // bookkeeping), i.e. ~28 KB at 12 + 72 (each extra bucket ~0.35 KB; check the teensy_size RAM1 line).
     enum {
         TLMCHAN_NUM_TLM_HASH_SLOTS = 12, // !< Number of slots in the hash table.
                                         // Works best when set to about twice the number of components producing telemetry
