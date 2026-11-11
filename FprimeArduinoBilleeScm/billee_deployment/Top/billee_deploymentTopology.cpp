@@ -130,6 +130,11 @@ void setupTopology(const TopologyState& state) {
     roboclawManager.configureMotor(billeeScm::RoboclawMotor::R2_M2, false);
     roboclawManager.configureMotor(billeeScm::RoboclawMotor::R3_M1, false);
 
+    // HX711 load cells (Sample Cache weight sensors). The scale starts at 1 count per gram (grams = raw counts minus
+    // the tare) until CALIBRATE or SET_SCALE sets it; put a measured factor here once the cells are calibrated.
+    loadCellManager.configure(billeeScm::LoadCellId::CELL1, SciencePins::LOADCELL1_DAT, SciencePins::LOADCELL1_CLK, 1.0f);
+    loadCellManager.configure(billeeScm::LoadCellId::CELL2, SciencePins::LOADCELL2_DAT, SciencePins::LOADCELL2_CLK, 1.0f);
+
     // PCA9685 servo board on the Teensy's Wire bus (SDA pin 18, SCL pin 19). Wire, not Wire1: Wire1's pins
     // (16/17) are Serial4's, which Roboclaw R3 uses above. 0 = the board's A5..A0 address pins (-> I2C
     // address 0x40, the library adds the base itself). 100 kHz rather than the library's 400 kHz default: the

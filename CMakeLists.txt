@@ -11,6 +11,9 @@ project(FprimeArduinoBilleeScm C CXX)
 # `.ARM.extab'". No-ops for non-Teensy platforms.
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/teensy_arm_extab_fix.cmake")
 
+# Runs cold libraries (sequencer, file handling) from flash instead of RAM1 so the stack keeps its room; see the file.
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/teensy_flash_code.cmake")
+
 # Teensy 4.1 runs all code from RAM1 (ITCM, allocated in 32 KB blocks), and whatever RAM1 the code
 # doesn't take is shared by variables and the stack. Compile with -Os (Teensyduino's "Smallest Code")
 # instead of the toolchain's -O2 so the deployment fits; GCC uses the last -O flag, and these options

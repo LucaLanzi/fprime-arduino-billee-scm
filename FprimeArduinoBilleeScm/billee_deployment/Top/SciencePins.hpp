@@ -43,13 +43,19 @@ constexpr U8 I2C_SCL = 19;
 //   Roboclaw 3 (0x82) Serial4: RX 16, TX 17   (linear actuator)
 // Serial3 (14/15), Serial5 (21/20) and Serial8 (34/35) are unusable: their pins are limit switches / relays above.
 
-// Reserved for the three HX711 load-cell ADCs (no driver yet). HX711 is a clocked 2-wire protocol, not I2C.
-constexpr U8 HX711_1_DAT = 2;
-constexpr U8 HX711_1_CLK = 3;
-constexpr U8 HX711_2_DAT = 4;
-constexpr U8 HX711_2_CLK = 5;
-constexpr U8 HX711_3_DAT = 9;
-constexpr U8 HX711_3_CLK = 10;
+// HX711 load-cell ADCs (Sample Cache weight sensors, block diagram "Dat/CLK Bus 1/2"). The diagram does not assign
+// pins to these buses; 24-27 are free GPIOs, chosen to leave 2-5 to the carousel stepper and 9-13 to SPI0 / the LED.
+// HX711 is a clocked 2-wire protocol (not I2C). Power the HX711 boards from 3.3 V (Teensy pins are not 5 V tolerant).
+constexpr U8 LOADCELL1_DAT = 24;  // Dat/CLK bus 1 (billeeScm::LoadCellId::CELL1)
+constexpr U8 LOADCELL1_CLK = 25;
+constexpr U8 LOADCELL2_DAT = 26;  // Dat/CLK bus 2 (billeeScm::LoadCellId::CELL2)
+constexpr U8 LOADCELL2_CLK = 27;
+
+// Carousel stepper (block diagram T_GPIO_2/3/4/5), reserved for StepperManager.
+constexpr U8 STEPPER_GPIO_2 = 2;
+constexpr U8 STEPPER_GPIO_3 = 3;
+constexpr U8 STEPPER_GPIO_4 = 4;
+constexpr U8 STEPPER_GPIO_5 = 5;
 
 }  // namespace SciencePins
 }  // namespace billee_deployment

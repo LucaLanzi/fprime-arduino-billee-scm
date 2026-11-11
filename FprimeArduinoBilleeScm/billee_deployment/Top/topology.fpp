@@ -30,6 +30,7 @@ module billee_deployment {
     instance fatalHandler
     instance fileManager
     instance fileUplink
+    instance loadCellManager
     instance pca9685Manager
     instance pump1Gpio
     instance pump2Gpio
@@ -84,6 +85,7 @@ module billee_deployment {
       rateGroup1.RateGroupMemberOut[1] -> systemResources.run
       rateGroup1.RateGroupMemberOut[2] -> comDriver.schedIn
       rateGroup1.RateGroupMemberOut[3] -> relayManager.run
+      rateGroup1.RateGroupMemberOut[4] -> loadCellManager.run
       rateGroup1.RateGroupMemberOut[7] -> pca9685Manager.run
       rateGroup1.RateGroupMemberOut[10] -> cmdSeq.schedIn # invoke the command sequencer
       rateGroup1.RateGroupMemberOut[11] -> bootReporter.run
