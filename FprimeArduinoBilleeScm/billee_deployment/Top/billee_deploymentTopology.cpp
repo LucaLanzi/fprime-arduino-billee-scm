@@ -135,6 +135,10 @@ void setupTopology(const TopologyState& state) {
     loadCellManager.configure(billeeScm::LoadCellId::CELL1, SciencePins::LOADCELL1_DAT, SciencePins::LOADCELL1_CLK, 1.0f);
     loadCellManager.configure(billeeScm::LoadCellId::CELL2, SciencePins::LOADCELL2_DAT, SciencePins::LOADCELL2_CLK, 1.0f);
 
+    // Carousel stepper. Ramps at 4000 steps/s^2 (starting/ending at 200 steps/s). invertDirection = false: FORWARD
+    // leaves DR- off. If FORWARD turns the carousel the wrong way, set it to true.
+    stepperManager.configure(SciencePins::STEPPER_PU, SciencePins::STEPPER_DR, SciencePins::STEPPER_MF, 4000.0f, false);
+
     // PCA9685 servo board on the Teensy's Wire bus (SDA pin 18, SCL pin 19). Wire, not Wire1: Wire1's pins
     // (16/17) are Serial4's, which Roboclaw R3 uses above. 0 = the board's A5..A0 address pins (-> I2C
     // address 0x40, the library adds the base itself). 100 kHz rather than the library's 400 kHz default: the

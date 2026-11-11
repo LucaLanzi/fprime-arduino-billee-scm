@@ -51,11 +51,12 @@ constexpr U8 LOADCELL1_CLK = 25;
 constexpr U8 LOADCELL2_DAT = 26;  // Dat/CLK bus 2 (billeeScm::LoadCellId::CELL2)
 constexpr U8 LOADCELL2_CLK = 27;
 
-// Carousel stepper (block diagram T_GPIO_2/3/4/5), reserved for StepperManager.
-constexpr U8 STEPPER_GPIO_2 = 2;
-constexpr U8 STEPPER_GPIO_3 = 3;
-constexpr U8 STEPPER_GPIO_4 = 4;
-constexpr U8 STEPPER_GPIO_5 = 5;
+// Carousel stepper (block diagram T_GPIO_2/3/4/5): NEMA 17 with an integrated driver on optocoupled inputs, XCOM to
+// +5 V. The pins are open-drain (LOW = input on), see StepperManager.
+constexpr U8 STEPPER_PU = 2;  // T_GPIO_2 -> PU- (step pulse)
+constexpr U8 STEPPER_DR = 3;  // T_GPIO_3 -> DR- (direction)
+constexpr U8 STEPPER_MF = 4;  // T_GPIO_4 -> MF- (motor free)
+// T_GPIO_5: spare (e.g. a future driver alarm or home switch input)
 
 }  // namespace SciencePins
 }  // namespace billee_deployment

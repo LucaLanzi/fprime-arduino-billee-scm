@@ -36,7 +36,8 @@ module billee_deployment {
   # out of the table. It is then never dispatched, its (depth 3) queue fills after three
   # rate-group ticks and Os::Queue::FULL trips an FW_ASSERT: a silent hang ~300 ms after boot.
   # Tasks are started in (fixed) alphabetical order: cmdDisp, cmdSeq, eventLogger, fileManager,
-  # fileUplink, loadCellManager, pca9685Manager, relayManager, roboclawManager, tlmSend, so priorities below
+  # fileUplink, loadCellManager, pca9685Manager, relayManager, roboclawManager, stepperManager, tlmSend, so
+  # priorities below
   # MUST be non-increasing in that order. On the cooperative TaskRunner priority only orders the
   # round-robin, so equal priorities cost nothing.
   # ----------------------------------------------------------------------
@@ -69,6 +70,12 @@ module billee_deployment {
     queue size Default.FILE_UPLINK_QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 98
+
+  @ Sample Cache carousel stepper (step / direction / motor-free driver on pins 2/3/4)
+  instance stepperManager: billeeScm.StepperManager base id 0x6300 \
+    queue size Default.QUEUE_SIZE \
+    stack size Default.STACK_SIZE \
+    priority 97
 
   instance tlmSend: Svc.TlmChan base id 0x0400 \
     queue size Default.SCHED_QUEUE_SIZE \
