@@ -14,6 +14,7 @@
 #include <Arduino/Os/Console.hpp>
 
 #include <Fw/Types/Assert.hpp>
+#include <Components/BootReporter/BootRecord.hpp>
 
 // A failed FW_ASSERT must leave the board reachable by `make flash`.
 //
@@ -24,7 +25,9 @@
 // physical Program button recovers it. Rebooting into the Teensy bootloader instead means any assert
 // leaves the board waiting for firmware (USB 16c0:0478), where `make flash` works unattended.
 //
-// No text is printed here on purpose: Serial is the binary CCSDS channel fprime-gds is attached to.
+// No text is printed here on purpose: Serial is the binary CCSDS channel fprime-gds is attached to. Instead the
+// assert's file/line/arguments are stored in RAM2, which survives the reboot, and bootReporter reports them to the
+// GDS as a PreviousBootAsserted event (and lastAssertFile/lastAssertLine telemetry) on the next boot.
 class RebootToBootloaderAssertHook : public Fw::AssertHook {
   public:
     void reportAssert(FILE_NAME_ARG file,
@@ -35,7 +38,10 @@ class RebootToBootloaderAssertHook : public Fw::AssertHook {
                       FwAssertArgType arg3,
                       FwAssertArgType arg4,
                       FwAssertArgType arg5,
-                      FwAssertArgType arg6) override {}
+                      FwAssertArgType arg6) override {
+        const FwAssertArgType args[6] = {arg1, arg2, arg3, arg4, arg5, arg6};
+        billeeScm::BootRecord::recordAssert(file, static_cast<U32>(lineNo), static_cast<U32>(numArgs), args);
+    }
     void doAssert() override {
         _reboot_Teensyduino_();  // runs the bootloader (bkpt #251); safe from ISR context, never returns
     }

@@ -12,6 +12,18 @@ module billee_deployment {
     # PCA9685Manager: `run` plus a burst of servo commands (e.g. a GDS sequence moving several servos back to
     # back) share this queue, and an overflow is an FW_ASSERT.
     constant PCA9685_QUEUE_SIZE = 10
+    # Command/event path (cmdDisp, cmdSeq, eventLogger): a running sequence, GDS commands and event bursts
+    # (e.g. fileManager.ListDirectory emits one event per file) all pass through these queues.
+    constant CORE_QUEUE_SIZE = 10
+    # Framework components whose rate-group input ASSERTS when their queue is full (tlmSend.Run, cmdSeq.schedIn,
+    # fileManager.schedIn). The TaskRunner is cooperative: while any handler blocks, the rate-group interrupt keeps
+    # queuing ticks, so the queue must hold every tick of the longest legitimate block. The longest is SD.begin()
+    # with no card (bootReporter.SD_MOUNT): SdFat's 2 s init timeout. 40 = 4 s at 10 Hz. (Our own components
+    # declare their rate-group port `drop` instead.) RAM2 heap: ~20 bytes per slot for tlmSend, ~0.5 KB for the
+    # two that queue commands.
+    constant SCHED_QUEUE_SIZE = 40
+    # fileUplink: one message per received file packet; holds packets until written to the SD card.
+    constant FILE_UPLINK_QUEUE_SIZE = 10
     constant STACK_SIZE = 64 * 1024
   }
 
@@ -24,30 +36,44 @@ module billee_deployment {
   # overwrites a real task instead of the trailing duplicate and the lowest-priority task drops
   # out of the table. It is then never dispatched, its (depth 3) queue fills after three
   # rate-group ticks and Os::Queue::FULL trips an FW_ASSERT: a silent hang ~300 ms after boot.
-  # Tasks are started in (fixed) alphabetical order: cmdDisp, eventLogger, pca9685Manager,
-  # pumpManager, roboclaw1Manager, roboclaw2Manager, roboclaw3Manager, stirrerManager, tlmSend,
-  # uvManager, so priorities below
+  # Tasks are started in (fixed) alphabetical order: cmdDisp, cmdSeq, eventLogger, fileManager,
+  # fileUplink, pca9685Manager, relayManager, roboclaw1Manager, roboclaw2Manager, roboclaw3Manager,
+  # tlmSend, so priorities below
   # MUST be non-increasing in that order. On the cooperative TaskRunner priority only orders the
   # round-robin, so equal priorities cost nothing.
   # ----------------------------------------------------------------------
 
   instance cmdDisp: Svc.CommandDispatcher base id 0x0100 \
-    queue size Default.QUEUE_SIZE\
+    queue size Default.CORE_QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 101
 
   instance cmdSeq: Svc.CmdSequencer base id 0x0200 \
-    queue size Default.QUEUE_SIZE \
+    queue size Default.SCHED_QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 100
 
   instance eventLogger: Svc.EventManager base id 0x0300 \
-    queue size Default.QUEUE_SIZE \
+    queue size Default.CORE_QUEUE_SIZE \
+    stack size Default.STACK_SIZE \
+    priority 98
+
+  @ SD-card file operations for sequences: CreateDirectory, RemoveFile, ListDirectory, FileSize, ...
+  @ Starts between eventLogger (98) and pca9685Manager (97), so its priority must be 97 or 98.
+  instance fileManager: Svc.FileManager base id 0x0500 \
+    queue size Default.SCHED_QUEUE_SIZE \
+    stack size Default.STACK_SIZE \
+    priority 98
+
+  @ Receives files (e.g. sequence .bin files) from the GDS Uplink/Sequence tabs and writes them to the SD card.
+  @ Starts between fileManager (98) and pca9685Manager (97), so its priority must be 97 or 98.
+  instance fileUplink: Svc.FileUplink base id 0x0600 \
+    queue size Default.FILE_UPLINK_QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 98
 
   instance tlmSend: Svc.TlmChan base id 0x0400 \
-    queue size Default.QUEUE_SIZE \
+    queue size Default.SCHED_QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 97
 
@@ -57,12 +83,8 @@ module billee_deployment {
     stack size Default.STACK_SIZE \
     priority 97
 
-  instance pumpManager: billeeScm.PumpManager base id 0x4A00 \
-    queue size Default.QUEUE_SIZE \
-    stack size Default.STACK_SIZE \
-    priority 97
-
-  instance uvManager: billeeScm.UvManager base id 0x5000 \
+  @ Logic-level relays: pumps 1-4, UV light, magnetic stirrer (relaySet[RelayId] -> the GPIOs below)
+  instance relayManager: billeeScm.RelayManager base id 0x4A00 \
     queue size Default.QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 97
@@ -83,11 +105,6 @@ module billee_deployment {
     stack size Default.STACK_SIZE \
     priority 97
 
-  instance stirrerManager: billeeScm.StirrerManager base id 0x5F00 \
-    queue size Default.QUEUE_SIZE \
-    stack size Default.STACK_SIZE \
-    priority 97
-
 
 
   # ----------------------------------------------------------------------
@@ -99,6 +116,9 @@ module billee_deployment {
   # ----------------------------------------------------------------------
 
   instance rateGroup1: Svc.PassiveRateGroup base id 0x1000
+
+  @ Reports the previous boot's FW_ASSERT location / hard fault and the SD card mount result (see Main.cpp)
+  instance bootReporter: billeeScm.BootReporter base id 0x0700
 
   @ Communications driver. May be swapped with other com drivers like Arduino.StreamDriver, Arduino.TcpServer, or Arduino.TcpClient.
   instance comDriver: Arduino.StreamDriver base id 0x4000
@@ -125,9 +145,7 @@ module billee_deployment {
 
   instance uvGpio: Arduino.GpioDriver base id 0x5A00
 
-  instance stirrer1Gpio: Arduino.GpioDriver base id 0x6000
-
-  instance stirrer2Gpio: Arduino.GpioDriver base id 0x6100
+  instance stirrerGpio: Arduino.GpioDriver base id 0x6000
 
   instance soilLowerLimitGpio: Arduino.GpioDriver base id 0x5200  @< roboclaw1Manager, Motor1
 

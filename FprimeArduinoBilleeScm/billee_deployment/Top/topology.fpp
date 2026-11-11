@@ -21,11 +21,14 @@ module billee_deployment {
     # Instances used in the topology
     # ----------------------------------------------------------------------
 
+    instance bootReporter
     instance cmdDisp
     instance cmdSeq
     instance comDriver
     instance eventLogger
     instance fatalHandler
+    instance fileManager
+    instance fileUplink
     instance drillAsmLowerLimitGpio
     instance drillAsmUpperLimitGpio
     instance drillTubeLowerLimitGpio
@@ -35,17 +38,14 @@ module billee_deployment {
     instance pump2Gpio
     instance pump3Gpio
     instance pump4Gpio
-    instance pumpManager
     instance roboclaw1Manager
     instance roboclaw2Manager
     instance roboclaw3Manager
     instance soilLowerLimitGpio
     instance soilUpperLimitGpio
-    instance stirrer1Gpio
-    instance stirrer2Gpio
-    instance stirrerManager
+    instance relayManager
+    instance stirrerGpio
     instance uvGpio
-    instance uvManager
     instance rateDriver
     instance rateGroup1
     instance rateGroupDriver
@@ -81,14 +81,15 @@ module billee_deployment {
       rateGroup1.RateGroupMemberOut[0] -> tlmSend.Run
       rateGroup1.RateGroupMemberOut[1] -> systemResources.run
       rateGroup1.RateGroupMemberOut[2] -> comDriver.schedIn
-      rateGroup1.RateGroupMemberOut[3] -> pumpManager.run
-      rateGroup1.RateGroupMemberOut[4] -> uvManager.run
+      rateGroup1.RateGroupMemberOut[3] -> relayManager.run
       rateGroup1.RateGroupMemberOut[5] -> roboclaw1Manager.run
       rateGroup1.RateGroupMemberOut[6] -> roboclaw2Manager.run
       rateGroup1.RateGroupMemberOut[7] -> pca9685Manager.run
       rateGroup1.RateGroupMemberOut[8] -> roboclaw3Manager.run
-      rateGroup1.RateGroupMemberOut[9] -> stirrerManager.run
       rateGroup1.RateGroupMemberOut[10] -> cmdSeq.schedIn # invoke the command sequencer
+      rateGroup1.RateGroupMemberOut[11] -> bootReporter.run
+      # fileManager does ListDirectory a few entries per tick, so the listing only progresses with this connected
+      rateGroup1.RateGroupMemberOut[12] -> fileManager.schedIn
     }
 
     connections FaultProtection {
@@ -98,6 +99,14 @@ module billee_deployment {
     connections Sequencer {
       cmdSeq.comCmdOut -> cmdDisp.seqCmdBuff[1]
       cmdDisp.seqCmdStatus[1] -> cmdSeq.cmdResponseIn
+    }
+
+    connections FileUplink {
+      # The router copies each uplinked file packet into a commsBufferManager buffer and hands it over;
+      # fileUplink returns it when written so the router can free it (without the return, every file packet
+      # would leak one buffer from the pool).
+      ComCcsds.fprimeRouter.fileOut     -> fileUplink.bufferSendIn
+      fileUplink.bufferSendOut          -> ComCcsds.fprimeRouter.fileBufferReturnIn
     }
 
 
@@ -124,15 +133,15 @@ module billee_deployment {
     }
 
     connections billee_deployment {
-      pumpManager.pump1Set -> pump1Gpio.gpioWrite
-      pumpManager.pump2Set -> pump2Gpio.gpioWrite
-      pumpManager.pump3Set -> pump3Gpio.gpioWrite
-      pumpManager.pump4Set -> pump4Gpio.gpioWrite
+      # relaySet index = billeeScm.RelayId value (Types/RelayTypes.fpp)
+      relayManager.relaySet[0] -> pump1Gpio.gpioWrite    # PUMP1
+      relayManager.relaySet[1] -> pump2Gpio.gpioWrite    # PUMP2
+      relayManager.relaySet[2] -> pump3Gpio.gpioWrite    # PUMP3
+      relayManager.relaySet[3] -> pump4Gpio.gpioWrite    # PUMP4
+      relayManager.relaySet[4] -> uvGpio.gpioWrite       # UV_LIGHT
+      relayManager.relaySet[5] -> stirrerGpio.gpioWrite  # STIRRER
 
-      uvManager.uvSet -> uvGpio.gpioWrite
 
-      stirrerManager.stirrer1Set -> stirrer1Gpio.gpioWrite
-      stirrerManager.stirrer2Set -> stirrer2Gpio.gpioWrite
 
       # Interim: RoboclawManager reads one switch per motor and blocks both directions while it is tripped,
       # so only each motor's lower switch is wired. The upper switches (soilUpperLimitGpio,

@@ -15,10 +15,11 @@
 // regCommands() at boot, and the assert hook then reboots the Teensy into its bootloader: the firmware builds and
 // flashes fine and then never runs. It was 24 with 23 commands until PCA9685Manager (+6) took it to 29; the
 // PWM + direction refactor (PCA9685Manager 6 -> 5, each RoboclawManager 2 -> 3) took it to ~30, and
-// roboclaw3Manager (+7 with its PRM_SET/PRM_SAVE commands) + stirrerManager (+1) to ~38. 56 keeps ~18 spare;
+// roboclaw3Manager (+7 with its PRM_SET/PRM_SAVE commands) + stirrerManager (+1) to ~38, cmdSeq (+8) and fileManager (+8)
+// to 54. 64 keeps ~10 spare;
 // an entry is only a few bytes, so the margin is cheap.
 enum {
-    CMD_DISPATCHER_DISPATCH_TABLE_SIZE = 56, // !< The size of the table holding opcodes to dispatch
+    CMD_DISPATCHER_DISPATCH_TABLE_SIZE = 64, // !< The size of the table holding opcodes to dispatch
     CMD_DISPATCHER_SEQUENCER_TABLE_SIZE = 8, // !< The size of the table holding commands in progress
 };
 

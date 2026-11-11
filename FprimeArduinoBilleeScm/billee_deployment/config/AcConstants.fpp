@@ -6,17 +6,16 @@
 @ Number of rate group member output ports for ActiveRateGroup
 constant ActiveRateGroupOutputPorts = 10
 
-@ Number of rate group member output ports for PassiveRateGroup. rateGroup1 uses 10 (0-9) as of
-@ roboclaw3Manager + stirrerManager; 12 leaves two free slots.
-constant PassiveRateGroupOutputPorts = 12
+@ Number of rate group member output ports for PassiveRateGroup (per rate group). Check the highest
+@ RateGroupMemberOut index in topology.fpp; connecting past this is an FPP error at generate time.
+constant PassiveRateGroupOutputPorts = 16
 
 @ Used to drive rate groups
 constant RateGroupDriverRateGroupPorts = 3
 
-@ Used for command and registration ports: one per component with commands (11 as of roboclaw3Manager +
-@ stirrerManager: cmdDisp, eventLogger, systemResources, timeHandler, pumpManager, uvManager, pca9685Manager,
-@ roboclaw1-3Manager, stirrerManager). 14 leaves three free.
-constant CmdDispatcherComponentCommandPorts = 14
+@ Used for command and registration ports: one per component instance with commands. Count them in the
+@ dictionary (README "Fixed-size tables"); going over is an FPP error at generate time.
+constant CmdDispatcherComponentCommandPorts = 16
 
 @ Used for uplink/sequencer buffer/response ports
 constant CmdDispatcherSequencePorts = 2

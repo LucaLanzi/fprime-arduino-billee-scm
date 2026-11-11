@@ -19,8 +19,7 @@ constexpr U8 PUMP1 = 39;      // T_GPIO_39, +12V
 constexpr U8 PUMP2 = 38;      // T_GPIO_38, +12V
 constexpr U8 PUMP3 = 37;      // T_GPIO_37, +12V
 constexpr U8 PUMP4 = 36;      // T_GPIO_36, +12V
-constexpr U8 STIRRER1 = 35;   // T_GPIO_35, +12V magnetic stirrer 1
-constexpr U8 STIRRER2 = 34;   // T_GPIO_34, +12V magnetic stirrer 2
+constexpr U8 STIRRER = 34;    // T_GPIO_34, +12V magnetic stirrer MS1
 
 // Limit switches (close to GND when tripped, read with INPUT_PULLUP)
 constexpr U8 SOIL_LOWER_LIMIT = 23;       // T_GPIO_23, Soil Transport (Roboclaw 1, Motor1)

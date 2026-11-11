@@ -2,9 +2,14 @@ module ComCcsdsConfig {
     #Base ID for the ComCcsds Subtopology, all components are offsets from this base ID
     constant BASE_ID = 0x02000000
 
+    # Was 3/3. ComQueue's comPacketQueueIn (events, telemetry) and run ports DROP when its queue is full, but
+    # comStatusIn (one per frame sent) ASSERTS. With depth 3 any burst filled the queue with packets first and
+    # the next frame's status asserted (ComQueueComponentAc.cpp: FW_ASSERT(qStatus == OP_OK)): a 3-event boot
+    # report, a failed fileManager command, or anything blocking the cooperative scheduler for a while (SD.begin
+    # with no card) rebooted the board into the bootloader. Each slot is ~0.5 KB on the RAM2 heap.
     module QueueSizes {
-        constant comQueue    = 3
-        constant aggregator  = 3
+        constant comQueue    = 20
+        constant aggregator  = 10
     }
 
     module StackSizes {
@@ -61,7 +66,11 @@ module ComCcsdsConfig {
         # first real frame.
         constant commsBuffSize         = 2048
         constant commsFileBuffSize     = 140
-        constant commsBuffCount        = 3
+        # Was 3. The manager hands out the first free buffer that fits, scanning bins in order, and bin 0 is
+        # this 2048-byte one, so in practice every serial read, uplink frame, router file-packet copy and
+        # downlink frame takes one of these. 3 ran out as soon as a file uplink overlapped downlink.
+        # Allocated from the RAM2 heap, not RAM1.
+        constant commsBuffCount        = 8
         constant commsFileBuffCount    = 3
         constant commsBuffMgrId        = 200
     }
