@@ -269,6 +269,16 @@ already applied, no hand-editing needed.
   otherwise). This applies to any Arduino-family board using the SD-backed
   file implementation, not just Teensy.
 
+**A RAM fix:**
+- `config/FpConstants.fpp`: overrides `FW_TLM_BUFFER_MAX_SIZE` (506→128).
+  Every TlmChan bucket reserves one buffer of this size, two copies each, so
+  at the default `tlmSend` alone took ~83 KB of RAM1 for values no bigger
+  than 96 bytes. At 128 it's ~28 KB. It must stay ≥ the largest telemetry
+  value in the deployment (see "Fixed-size tables" for the script that checks
+  it). Everything else in the file is a verbatim copy of the framework's, so
+  when updating F´, diff `lib/fprime/default/config/FpConstants.fpp` against
+  it and carry over any new constants.
+
 If you ever regenerate `billee_deployment/` from the cookiecutter again, the
 fork's two fixes come along automatically — but still verify the
 `PlatformCfg.fpp` handle-size override below, since that one is deliberately
@@ -497,22 +507,51 @@ anything in a vendored library that calls `new` cannot be used:
 `PCA9685_ServoEval` (every constructor does `new float[]`) is deliberately
 avoided, see the `PCA9685Manager` SDD.
 
-**Fixed-size tables.** Two tables in `billee_deployment/config/` are sized by
-hand, and going over either is an `FW_ASSERT` at boot:
+**Fixed-size tables.** These limits in `billee_deployment/config/` are sized
+by hand, and going over any of them is an `FW_ASSERT` on the board, not a
+build error:
 
 | Table | Setting | Must be |
 |---|---|---|
 | Command dispatch table | `CMD_DISPATCHER_DISPATCH_TABLE_SIZE` (`CommandDispatcherImplCfg.hpp`) | ≥ number of commands in the deployment (asserts inside `regCommands()` during `setupTopology()`) |
 | TlmChan | `TLMCHAN_NUM_TLM_HASH_SLOTS` / `TLMCHAN_HASH_BUCKETS` (`TlmChanImplCfg.hpp`) | buckets ≥ number of telemetry channels (asserts on the first tick that writes one too many) |
+| Telemetry value size | `FW_TLM_BUFFER_MAX_SIZE` (`FpConstants.fpp`, 128) | ≥ the largest serialized telemetry value (asserts when that channel is first written) |
 
-Adding a component adds commands and channels, so re-check both. Count them
-from the dictionary the build produces:
+Adding a component adds commands and channels, so re-check all three. The
+script below reads them from the dictionary the build produces. Channel sizes
+come from the dictionary's `typeDefinitions`: primitives by type, enums by
+their representation type, strings as 2 + max length, arrays and structs
+summed. It prints `-1` for a type it can't size, which you then check by hand.
 
 ```bash
 python3 - build-artifacts/teensy41/*/dict/*.json <<'EOF'
 import json, sys
 d = json.load(open(sys.argv[1]))
 print("commands", len(d["commands"]), " telemetry channels", len(d["telemetryChannels"]))
+types = {t["qualifiedName"]: t for t in d.get("typeDefinitions", [])}
+prim = {"U8": 1, "I8": 1, "U16": 2, "I16": 2, "U32": 4, "I32": 4, "F32": 4,
+        "U64": 8, "I64": 8, "F64": 8, "bool": 1}
+def size(t):
+    if t["kind"] in ("integer", "float", "bool"):
+        return prim.get(t["name"])
+    if t["kind"] == "string":
+        return 2 + t.get("size", 80)
+    q = types.get(t["name"])
+    if q is None:
+        return None
+    if q["kind"] == "enum":
+        return prim.get(q["representationType"]["name"])
+    if q["kind"] == "alias":
+        return size(q["underlyingType"])
+    if q["kind"] == "array":
+        s = size(q["elementType"])
+        return s * q["size"] if s else None
+    if q["kind"] == "struct":
+        parts = [(size(m["type"]), m.get("size", 1)) for m in q["members"].values()]
+        return None if any(s is None for s, _ in parts) else sum(s * n for s, n in parts)
+    return None
+sizes = sorted((size(c["type"]) or -1, c["name"]) for c in d["telemetryChannels"])
+print("largest telemetry values (bytes):", sizes[-3:])
 EOF
 ```
 
@@ -523,13 +562,54 @@ device) instead of a serial port, `/dev/ttyBILLEE_SCM` never appears, and the
 GDS service loops forever waiting for it. `make flash` still reaches the board
 (no button needed), so fix the table and reflash. This happened when
 PCA9685Manager took the command count from 23 to 29 against a table of 24.
-Current values: 56 commands (~38 used), 12 slots + 72 buckets (~56 channels).
-TlmChan costs about 520 bytes per entry, two copies of each (12 + 72 entries is
-about 87 KB of RAM1), so check the `teensy_size` RAM1 line after changing it.
+Current values: 56 commands (46 used), 12 slots + 72 buckets (61 channels),
+`FW_TLM_BUFFER_MAX_SIZE` 128 (largest channel: `pca9685Manager.servoStates`,
+96 bytes). Each TlmChan bucket holds one telemetry buffer of
+`FW_TLM_BUFFER_MAX_SIZE` and TlmChan keeps two copies of every bucket, so
+`tlmSend` is about 28 KB of RAM1. It was about 83 KB when the buffer was the
+framework's default of 506 bytes. Check the `teensy_size` RAM1 line after
+changing either setting (see "RAM1 budget" below).
 Two port counts in `config/AcConstants.fpp` are also sized by hand (going over
 either is an FPP error at `make generate`, not a boot assert):
-`PassiveRateGroupOutputPorts` = 12 (10 used by `rateGroup1`) and
+`PassiveRateGroupOutputPorts` = 12 (11 used by `rateGroup1`) and
 `CmdDispatcherComponentCommandPorts` = 14 (11 components with commands).
+
+**RAM1 budget.** Teensy 4.1 runs all code from RAM1 (ITCM), which the linker
+hands out in **32 KB blocks**. Whatever RAM1 the code doesn't take holds the
+global variables, and what's left after those is the **stack**. So adding
+code can take a whole 32 KB from the stack at once, the moment the code
+crosses a block boundary. The root `CMakeLists.txt` compiles with `-Os`
+(Teensyduino's "Smallest Code") instead of the toolchain's `-O2` for this
+reason. Adding the command sequencer and SD library at `-O2` pushed code over
+the boundary and left the stack at −33 KB.
+
+Check after every change that adds a component, a library or a channel:
+
+```bash
+~/.arduino15/packages/teensy/tools/teensy-tools/*/teensy_size \
+  build-artifacts/teensy41/FprimeArduinoBilleeScm_billee_deployment/bin/FprimeArduinoBilleeScm_billee_deployment.elf
+```
+
+- Measure **that** `.elf`. The one under
+  `build-fprime-automatic-teensy41/arduino-cli-sketch/` is a small stub, not
+  the firmware, and its numbers look healthy no matter what.
+- `RAM1 ... free for local variables` is the stack. Keep it at 16 KB or more.
+  A small or negative number means the board faults during startup, before
+  USB comes up.
+- `code:` shows how close the next block boundary is (multiples of 32,768).
+- To see what grew, list the biggest symbols (`B`/`D` are variables, `T` is
+  code):
+  `~/.arduino15/packages/teensy/tools/teensy-compile/11.3.1/arm/bin/arm-none-eabi-nm -C -S --size-sort <that .elf> | tail -20`
+- `make build`/`make flash` do **not** stop when `teensy_size` prints
+  `Error program exceeds memory space`. Read the output.
+- The Jetson's build of the same commit comes out about 11 KB larger in code
+  than a WSL build. Check the numbers from the machine that flashes.
+
+**Symptom if RAM1 overflows:** build and flash succeed, then nothing. The
+kernel log on the host shows the flash (`16c0:0478`), a disconnect, and no
+device after it (`dmesg | grep -i usb`). No serial port, no bootloader, no
+reboot loop: the board faults during startup, before USB comes up, unlike an
+`FW_ASSERT`, which leaves it in the bootloader.
 
 **Pinout**: every pin is defined in `billee_deployment/Top/SciencePins.hpp`,
 matching the Science Hardware Architecture 2027 block diagram.
