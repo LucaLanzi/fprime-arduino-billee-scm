@@ -22,6 +22,7 @@ module billee_deployment {
     # ----------------------------------------------------------------------
 
     instance cmdDisp
+    instance cmdSeq
     instance comDriver
     instance eventLogger
     instance fatalHandler
@@ -87,10 +88,16 @@ module billee_deployment {
       rateGroup1.RateGroupMemberOut[7] -> pca9685Manager.run
       rateGroup1.RateGroupMemberOut[8] -> roboclaw3Manager.run
       rateGroup1.RateGroupMemberOut[9] -> stirrerManager.run
+      rateGroup1.RateGroupMemberOut[10] -> cmdSeq.schedIn # invoke the command sequencer
     }
 
     connections FaultProtection {
       eventLogger.FatalAnnounce -> fatalHandler.FatalReceive
+    }
+
+    connections Sequencer {
+      cmdSeq.comCmdOut -> cmdDisp.seqCmdBuff[1]
+      cmdDisp.seqCmdStatus[1] -> cmdSeq.cmdResponseIn
     }
 
 

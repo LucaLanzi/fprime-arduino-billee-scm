@@ -38,6 +38,7 @@ register_fprime_deployment(
         "${CMAKE_CURRENT_LIST_DIR}/Main.cpp"
     DEPENDS
         ${FPRIME_CURRENT_MODULE}_Top
+        CHOOSES_IMPLEMENTATIONS Os_File_Arduino_SD
 )
 
 # finalize_arduino_executable() calls setup_arduino_libraries() before

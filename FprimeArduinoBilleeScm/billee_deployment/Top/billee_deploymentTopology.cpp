@@ -13,6 +13,11 @@
 // Necessary project-specified types
 #include <Arduino/config/FprimeArduino.hpp>
 #include <billee_deployment/Top/SciencePins.hpp>
+#include <SD.h> //Include the SD card top level header library
+#include <Fw/Types/MallocAllocator.hpp>
+
+
+Fw::MallocAllocator mallocator; //namespace scope
 
 // Allows easy reference to objects in FPP/autocoder required namespaces
 using namespace billee_deployment;
@@ -34,6 +39,10 @@ U32 rateGroup1Context[FppConstant_PassiveRateGroupOutputPorts::PassiveRateGroupO
 void configureTopology() {
     // Rate group driver needs a divisor list
     rateGroupDriver.configure(rateGroupDivisors);
+
+    // Allocate buffer for incoming command sequences
+    cmdSeq.allocateBuffer(0, mallocator, 4 * 1024);
+
 
     // Rate groups require context arrays.
     rateGroup1.configure(rateGroup1Context, FW_NUM_ARRAY_ELEMENTS(rateGroup1Context));
@@ -58,6 +67,12 @@ void setupTopology(const TopologyState& state) {
     // DISABLED FOR ARDUINO BOARDS. Loading parameters are not supported because there is typically no file system.
     // loadParameters();
     // Autocoded task kick-off (active components). Function provided by autocoder.
+    
+    if (!SD.begin(BUILTIN_SDCARD)) {
+    Fw::Logger::log("SD card init failed; sequences unavailable\n");
+    }
+
+
     startTasks(state);
 
     comDriver.configure(&Serial);
@@ -121,6 +136,7 @@ void setupTopology(const TopologyState& state) {
 
 void teardownTopology(const TopologyState& state) {
     // Autocoded (active component) task clean-up. Functions provided by topology autocoder.
+    cmdSeq.deallocateBuffer(mallocator);
     stopTasks(state);
     freeThreads(state);
 }
