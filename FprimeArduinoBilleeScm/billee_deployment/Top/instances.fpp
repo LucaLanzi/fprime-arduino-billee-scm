@@ -6,8 +6,7 @@ module billee_deployment {
 
   module Default {
     constant QUEUE_SIZE = 5
-    # RoboclawManager queues more than the others: besides `run` and the commands it also puts its own
-    # state-machine signals (tick, cmdRecv, success/fail) on this queue, and an overflow is an FW_ASSERT.
+    # RoboclawManager: commands for five motors plus a 50 Hz run port (which drops when full).
     constant ROBOCLAW_QUEUE_SIZE = 10
     # PCA9685Manager: `run` plus a burst of servo commands (e.g. a GDS sequence moving several servos back to
     # back) share this queue, and an overflow is an FW_ASSERT.
@@ -37,8 +36,7 @@ module billee_deployment {
   # out of the table. It is then never dispatched, its (depth 3) queue fills after three
   # rate-group ticks and Os::Queue::FULL trips an FW_ASSERT: a silent hang ~300 ms after boot.
   # Tasks are started in (fixed) alphabetical order: cmdDisp, cmdSeq, eventLogger, fileManager,
-  # fileUplink, pca9685Manager, relayManager, roboclaw1Manager, roboclaw2Manager, roboclaw3Manager,
-  # tlmSend, so priorities below
+  # fileUplink, pca9685Manager, relayManager, roboclawManager, tlmSend, so priorities below
   # MUST be non-increasing in that order. On the cooperative TaskRunner priority only orders the
   # round-robin, so equal priorities cost nothing.
   # ----------------------------------------------------------------------
@@ -77,7 +75,7 @@ module billee_deployment {
     stack size Default.STACK_SIZE \
     priority 97
 
-  # Starts between eventLogger (98) and pumpManager (97) ('c' < 'u'), so its priority must be 97 or 98.
+  @ PCA9685 servo board: servos S1-S16
   instance pca9685Manager: billeeScm.PCA9685Manager base id 0x5D00 \
     queue size Default.PCA9685_QUEUE_SIZE \
     stack size Default.STACK_SIZE \
@@ -89,23 +87,12 @@ module billee_deployment {
     stack size Default.STACK_SIZE \
     priority 97
 
-  instance roboclaw1Manager: billeeScm.RoboclawManager base id 0x5100 \
+  @ All three Roboclaw boards (R1 Serial1, R2 Serial2, R3 Serial4) and their five motors, with limit switches.
+  @ Ticked at 50 Hz by rateGroup2.
+  instance roboclawManager: billeeScm.RoboclawManager base id 0x5100 \
     queue size Default.ROBOCLAW_QUEUE_SIZE \
     stack size Default.STACK_SIZE \
     priority 97
-
-  instance roboclaw2Manager: billeeScm.RoboclawManager base id 0x5900 \
-    queue size Default.ROBOCLAW_QUEUE_SIZE \
-    stack size Default.STACK_SIZE \
-    priority 97
-
-  @ Sample-cache linear actuator (Motor1 only)
-  instance roboclaw3Manager: billeeScm.RoboclawManager base id 0x5E00 \
-    queue size Default.ROBOCLAW_QUEUE_SIZE \
-    stack size Default.STACK_SIZE \
-    priority 97
-
-
 
   # ----------------------------------------------------------------------
   # Queued component instances
@@ -115,7 +102,11 @@ module billee_deployment {
   # Passive component instances
   # ----------------------------------------------------------------------
 
+  @ 10 Hz: telemetry, comms, managers, sequencer
   instance rateGroup1: Svc.PassiveRateGroup base id 0x1000
+
+  @ 50 Hz: roboclawManager (limit switches are checked every tick, so a motor stops within 20 ms of its switch)
+  instance rateGroup2: Svc.PassiveRateGroup base id 0x1100
 
   @ Reports the previous boot's FW_ASSERT location / hard fault and the SD card mount result (see Main.cpp)
   instance bootReporter: billeeScm.BootReporter base id 0x0700
@@ -147,16 +138,14 @@ module billee_deployment {
 
   instance stirrerGpio: Arduino.GpioDriver base id 0x6000
 
-  instance soilLowerLimitGpio: Arduino.GpioDriver base id 0x5200  @< roboclaw1Manager, Motor1
-
-  instance soilUpperLimitGpio: Arduino.GpioDriver base id 0x5300  @< roboclaw1Manager, Motor1
-
-  instance drillAsmLowerLimitGpio: Arduino.GpioDriver base id 0x5B00  @< roboclaw1Manager, Motor2
-
-  instance drillAsmUpperLimitGpio: Arduino.GpioDriver base id 0x5C00  @< roboclaw1Manager, Motor2
-
-  instance drillTubeLowerLimitGpio: Arduino.GpioDriver base id 0x5400  @< roboclaw2Manager, Motor1
-
-  instance drillTubeUpperLimitGpio: Arduino.GpioDriver base id 0x5500  @< roboclaw2Manager, Motor1
+  # Limit switches, one pair per Roboclaw motor (R2_M2, the drill, has none). Pins in SciencePins.hpp.
+  instance r1m1LowerLimitGpio: Arduino.GpioDriver base id 0x5200  @< R1_M1 soil drill actuator, lower
+  instance r1m1UpperLimitGpio: Arduino.GpioDriver base id 0x5300  @< R1_M1 soil drill actuator, upper
+  instance r1m2LowerLimitGpio: Arduino.GpioDriver base id 0x5B00  @< R1_M2 transfer tube actuator, lower
+  instance r1m2UpperLimitGpio: Arduino.GpioDriver base id 0x5C00  @< R1_M2 transfer tube actuator, upper
+  instance r2m1LowerLimitGpio: Arduino.GpioDriver base id 0x5400  @< R2_M1 transfer tube lead screw, lower
+  instance r2m1UpperLimitGpio: Arduino.GpioDriver base id 0x5500  @< R2_M1 drill tube to ground contact, upper
+  instance r3m1LowerLimitGpio: Arduino.GpioDriver base id 0x5600  @< R3_M1 sample rotation linear actuator, lower
+  instance r3m1UpperLimitGpio: Arduino.GpioDriver base id 0x5700  @< R3_M1 sample rotation linear actuator, upper
 
 }

@@ -6,6 +6,7 @@ module billee_deployment {
 
     enum Ports_RateGroups {
       rateGroup1
+      rateGroup2
     }
 
   topology billee_deployment {
@@ -29,25 +30,26 @@ module billee_deployment {
     instance fatalHandler
     instance fileManager
     instance fileUplink
-    instance drillAsmLowerLimitGpio
-    instance drillAsmUpperLimitGpio
-    instance drillTubeLowerLimitGpio
-    instance drillTubeUpperLimitGpio
     instance pca9685Manager
     instance pump1Gpio
     instance pump2Gpio
     instance pump3Gpio
     instance pump4Gpio
-    instance roboclaw1Manager
-    instance roboclaw2Manager
-    instance roboclaw3Manager
-    instance soilLowerLimitGpio
-    instance soilUpperLimitGpio
+    instance r1m1LowerLimitGpio
+    instance r1m1UpperLimitGpio
+    instance r1m2LowerLimitGpio
+    instance r1m2UpperLimitGpio
+    instance r2m1LowerLimitGpio
+    instance r2m1UpperLimitGpio
+    instance r3m1LowerLimitGpio
+    instance r3m1UpperLimitGpio
+    instance roboclawManager
     instance relayManager
     instance stirrerGpio
     instance uvGpio
     instance rateDriver
     instance rateGroup1
+    instance rateGroup2
     instance rateGroupDriver
     instance systemResources
     instance textLogger
@@ -82,14 +84,15 @@ module billee_deployment {
       rateGroup1.RateGroupMemberOut[1] -> systemResources.run
       rateGroup1.RateGroupMemberOut[2] -> comDriver.schedIn
       rateGroup1.RateGroupMemberOut[3] -> relayManager.run
-      rateGroup1.RateGroupMemberOut[5] -> roboclaw1Manager.run
-      rateGroup1.RateGroupMemberOut[6] -> roboclaw2Manager.run
       rateGroup1.RateGroupMemberOut[7] -> pca9685Manager.run
-      rateGroup1.RateGroupMemberOut[8] -> roboclaw3Manager.run
       rateGroup1.RateGroupMemberOut[10] -> cmdSeq.schedIn # invoke the command sequencer
       rateGroup1.RateGroupMemberOut[11] -> bootReporter.run
       # fileManager does ListDirectory a few entries per tick, so the listing only progresses with this connected
       rateGroup1.RateGroupMemberOut[12] -> fileManager.schedIn
+
+      # Rate group 2 (50 Hz)
+      rateGroupDriver.CycleOut[Ports_RateGroups.rateGroup2] -> rateGroup2.CycleIn
+      rateGroup2.RateGroupMemberOut[0] -> roboclawManager.run
     }
 
     connections FaultProtection {
@@ -143,14 +146,16 @@ module billee_deployment {
 
 
 
-      # Interim: RoboclawManager reads one switch per motor and blocks both directions while it is tripped,
-      # so only each motor's lower switch is wired. The upper switches (soilUpperLimitGpio,
-      # drillAsmUpperLimitGpio, drillTubeUpperLimitGpio) are opened but unread until a direction-aware
-      # limit switch manager pairs them. Roboclaw 2 Motor2 (drill spin) and Roboclaw 3 have no switches,
-      # so their limitSwGet ports stay unconnected.
-      roboclaw1Manager.limitSwGet[0] -> soilLowerLimitGpio.gpioRead
-      roboclaw1Manager.limitSwGet[1] -> drillAsmLowerLimitGpio.gpioRead
-      roboclaw2Manager.limitSwGet[0] -> drillTubeLowerLimitGpio.gpioRead
+      # Limit switches: limitSwGet[2 * RoboclawMotor + 0] = lower, [2 * RoboclawMotor + 1] = upper.
+      # R2_M2 (the drill, ports 6/7) has none, so those ports stay unconnected.
+      roboclawManager.limitSwGet[0] -> r1m1LowerLimitGpio.gpioRead
+      roboclawManager.limitSwGet[1] -> r1m1UpperLimitGpio.gpioRead
+      roboclawManager.limitSwGet[2] -> r1m2LowerLimitGpio.gpioRead
+      roboclawManager.limitSwGet[3] -> r1m2UpperLimitGpio.gpioRead
+      roboclawManager.limitSwGet[4] -> r2m1LowerLimitGpio.gpioRead
+      roboclawManager.limitSwGet[5] -> r2m1UpperLimitGpio.gpioRead
+      roboclawManager.limitSwGet[8] -> r3m1LowerLimitGpio.gpioRead
+      roboclawManager.limitSwGet[9] -> r3m1UpperLimitGpio.gpioRead
     }
 
   }

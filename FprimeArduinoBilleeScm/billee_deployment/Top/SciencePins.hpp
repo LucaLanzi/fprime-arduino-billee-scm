@@ -21,13 +21,17 @@ constexpr U8 PUMP3 = 37;      // T_GPIO_37, +12V
 constexpr U8 PUMP4 = 36;      // T_GPIO_36, +12V
 constexpr U8 STIRRER = 34;    // T_GPIO_34, +12V magnetic stirrer MS1
 
-// Limit switches (close to GND when tripped, read with INPUT_PULLUP)
-constexpr U8 SOIL_LOWER_LIMIT = 23;       // T_GPIO_23, Soil Transport (Roboclaw 1, Motor1)
-constexpr U8 SOIL_UPPER_LIMIT = 22;       // T_GPIO_22
-constexpr U8 DRILL_ASM_LOWER_LIMIT = 21;  // T_GPIO_21, Drill Assembly up/down (Roboclaw 1, Motor2)
-constexpr U8 DRILL_ASM_UPPER_LIMIT = 15;  // T_GPIO_15
-constexpr U8 DRILL_TUBE_LOWER_LIMIT = 14; // T_GPIO_14, Drill Tube up/down (Roboclaw 2, Motor1)
-constexpr U8 DRILL_TUBE_UPPER_LIMIT = 41; // T_GPIO_41
+// Limit switches (close to GND when tripped, read with INPUT_PULLUP), named after the Roboclaw motor they guard
+// (billeeScm::RoboclawMotor). FORWARD moves a motor toward its UPPER switch.
+constexpr U8 R1_M1_LOWER_LIMIT = 23;  // T_GPIO_23, soil drill actuator (Roboclaw 1, M1)
+constexpr U8 R1_M1_UPPER_LIMIT = 22;  // T_GPIO_22
+constexpr U8 R1_M2_LOWER_LIMIT = 21;  // T_GPIO_21, transfer tube actuator / drill up-down (Roboclaw 1, M2)
+constexpr U8 R1_M2_UPPER_LIMIT = 15;  // T_GPIO_15
+constexpr U8 R2_M1_LOWER_LIMIT = 14;  // T_GPIO_14, transfer tube lead screw (Roboclaw 2, M1)
+constexpr U8 R2_M1_UPPER_LIMIT = 41;  // T_GPIO_41, drill tube to ground contact
+constexpr U8 R3_M1_LOWER_LIMIT = 33;  // T_GPIO_33, sample rotation linear actuator (Roboclaw 3, M1)
+constexpr U8 R3_M1_UPPER_LIMIT = 32;  // T_GPIO_32
+// Roboclaw 2 M2 (drill) has no limit switches.
 
 // PCA9685 on Wire: SDA 18, SCL 19 (fixed by the Wire peripheral, listed for reference)
 constexpr U8 I2C_SDA = 18;
